@@ -1,90 +1,96 @@
 import type { MapEdge, Nation, Province, Resource, Terrain, Tile, World } from "./types";
 
-const width = 36;
-const height = 24;
-const provinceSize = 4;
+const width = 96;
+const height = 64;
+const defaultSeed = "observer-world-001";
+const nationCount = 6;
+const targetProvinceCount = 118;
 
-const nations: Nation[] = [
+const nationTemplates = [
   { id: "aurora", name: "Aurora Directorate", color: "#4d8bff", numericColor: 0x4d8bff },
   { id: "verdant", name: "Verdant Assembly", color: "#42a66b", numericColor: 0x42a66b },
   { id: "sol", name: "Sol Meridian", color: "#d89d35", numericColor: 0xd89d35 },
   { id: "ember", name: "Ember Compact", color: "#d4615f", numericColor: 0xd4615f },
+  { id: "lumen", name: "Lumen Accord", color: "#b985e8", numericColor: 0xb985e8 },
+  { id: "cobalt", name: "Cobalt League", color: "#49b7c9", numericColor: 0x49b7c9 },
 ];
 
-const nationLayout = [
-  ["aurora", "aurora", "verdant", "verdant", "verdant", "verdant", "sol", "sol", "sol"],
-  ["aurora", "aurora", "aurora", "verdant", "verdant", "sol", "sol", "sol", "sol"],
-  ["aurora", "aurora", "aurora", "verdant", "sol", "sol", "sol", "ember", "ember"],
-  ["aurora", "aurora", "verdant", "verdant", "sol", "ember", "ember", "ember", "ember"],
-  ["aurora", "verdant", "verdant", "sol", "sol", "ember", "ember", "ember", "ember"],
-  ["verdant", "verdant", "verdant", "sol", "ember", "ember", "ember", "ember", "ember"],
+const namePrefixes = [
+  "North",
+  "South",
+  "East",
+  "West",
+  "High",
+  "Low",
+  "Old",
+  "New",
+  "Red",
+  "Blue",
+  "Silver",
+  "Golden",
+  "Green",
+  "Black",
+  "White",
+  "Clear",
+  "Bright",
+  "Deep",
+  "Storm",
+  "Cloud",
+  "Star",
+  "Moon",
+  "Sun",
+  "Stone",
 ];
 
-const provinceNames = [
-  "Northreach",
-  "Glasswater",
-  "Iron Vale",
-  "Windplain",
-  "Moonfen",
-  "Redbarrow",
-  "Sunfall",
-  "Highmere",
-  "Eastwatch",
-  "Silver Coast",
-  "Old Timber",
-  "Amber Steppe",
-  "Cloudridge",
-  "Pearl Basin",
-  "Ashfield",
-  "Dawn Gate",
-  "Low March",
-  "Storm Ford",
-  "River Crown",
-  "Saltmere",
-  "Thornhold",
-  "Starfield",
-  "Bright Moor",
-  "Copper Reach",
-  "Frostmere",
-  "Southgate",
-  "New Orchard",
-  "Flint Coast",
-  "Pine Belt",
-  "Golden Rise",
-  "Sable Plain",
-  "Marble Run",
-  "Grey Downs",
-  "Firebreak",
-  "Hearth Basin",
-  "Last Harbour",
-  "Bluefall",
-  "Quiet Range",
-  "Stonewake",
-  "Mistfield",
-  "Cinder Wash",
-  "Lakewall",
-  "Far Garden",
-  "Bright Harbor",
-  "Needle Hills",
-  "Orchid Span",
-  "Nightwell",
-  "Westforge",
-  "Deep Fen",
-  "Hollow Steppe",
-  "Green Pass",
-  "Long Valley",
-  "Clearwater",
-  "Crown Shoal",
+const nameRoots = [
+  "reach",
+  "mere",
+  "vale",
+  "plain",
+  "wood",
+  "ford",
+  "ridge",
+  "basin",
+  "march",
+  "watch",
+  "harbor",
+  "field",
+  "coast",
+  "gate",
+  "fen",
+  "fall",
+  "run",
+  "moor",
+  "hold",
+  "pass",
+  "crown",
+  "barrow",
+  "garden",
+  "forge",
 ];
 
-export function buildDemoWorld(): World {
-  const provinces = buildProvinces();
+type ProvinceSeed = {
+  id: string;
+  x: number;
+  y: number;
+};
+
+export function buildDemoWorld(seed = defaultSeed): World {
+  const seedHash = hashString(seed);
+  const rng = mulberry32(seedHash);
+  const tiles = buildTiles(seedHash);
+  const provinceSeeds = chooseProvinceSeeds(tiles, rng);
+  const provinces = buildProvinces(tiles, provinceSeeds, seedHash);
+  const capitals = chooseCapitalProvinces(provinces, rng);
+  const nations = buildNations(provinces, capitals);
+  assignNationsToProvinces(provinces, capitals, seedHash);
+
   const provinceById = new Map(provinces.map((province) => [province.id, province]));
   const nationById = new Map(nations.map((nation) => [nation.id, nation]));
-  const tiles = buildTiles();
   const { provinceEdges, nationEdges } = buildBorders(tiles, provinceById);
 
   return {
+    seed,
     width,
     height,
     tiles,
@@ -97,43 +103,175 @@ export function buildDemoWorld(): World {
   };
 }
 
-function buildProvinces(): Province[] {
-  const provinces: Province[] = [];
-  let index = 0;
-
-  for (let py = 0; py < height / provinceSize; py += 1) {
-    for (let px = 0; px < width / provinceSize; px += 1) {
-      const id = provinceId(px, py);
-      provinces.push({
-        id,
-        name: provinceNames[index] ?? `Province ${index + 1}`,
-        nationId: nationLayout[py][px],
-      });
-      index += 1;
-    }
-  }
-
-  return provinces;
-}
-
-function buildTiles(): Tile[] {
+function buildTiles(seedHash: number): Tile[] {
   const tiles: Tile[] = [];
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const px = Math.floor(x / provinceSize);
-      const py = Math.floor(y / provinceSize);
+      const sample = sampleClimate(x, y, seedHash);
+      const terrain = terrainFromSample(sample);
       tiles.push({
         x,
         y,
-        terrain: terrainAt(x, y),
-        provinceId: provinceId(px, py),
-        resource: resourceAt(x, y),
+        terrain,
+        elevation: sample.elevation,
+        temperature: sample.temperature,
+        moisture: sample.moisture,
+        resource: resourceAt(x, y, terrain, sample, seedHash),
       });
     }
   }
 
   return tiles;
+}
+
+function chooseProvinceSeeds(tiles: Tile[], rng: () => number): ProvinceSeed[] {
+  const landTiles = tiles.filter((tile) => isLand(tile));
+  const seeds: ProvinceSeed[] = [];
+  const attempts = targetProvinceCount * 45;
+  const minDistance = 4.2;
+
+  for (let i = 0; i < attempts && seeds.length < targetProvinceCount; i += 1) {
+    const tile = landTiles[Math.floor(rng() * landTiles.length)];
+    const farEnough = seeds.every((seed) => distance(tile.x, tile.y, seed.x, seed.y) >= minDistance);
+
+    if (farEnough) {
+      seeds.push({ id: `province-${seeds.length}`, x: tile.x, y: tile.y });
+    }
+  }
+
+  while (seeds.length < Math.min(landTiles.length, targetProvinceCount)) {
+    const tile = landTiles[Math.floor(rng() * landTiles.length)];
+    seeds.push({ id: `province-${seeds.length}`, x: tile.x, y: tile.y });
+  }
+
+  return seeds;
+}
+
+function buildProvinces(tiles: Tile[], seeds: ProvinceSeed[], seedHash: number): Province[] {
+  const provinceStats = new Map<string, { xSum: number; ySum: number; count: number }>();
+
+  for (const tile of tiles) {
+    if (!isLand(tile)) {
+      continue;
+    }
+
+    let bestSeed = seeds[0];
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const seed of seeds) {
+      const terrainPenalty = tile.terrain === "mountain" ? 14 : tile.terrain === "hill" ? 5 : 0;
+      const borderNoise = noise2D(tile.x * 0.15 + seed.x, tile.y * 0.15 - seed.y, seedHash + 800);
+      const score =
+        (tile.x - seed.x) ** 2 +
+        (tile.y - seed.y) ** 2 +
+        terrainPenalty +
+        borderNoise * 16;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestSeed = seed;
+      }
+    }
+
+    tile.provinceId = bestSeed.id;
+    const stat = provinceStats.get(bestSeed.id) ?? { xSum: 0, ySum: 0, count: 0 };
+    stat.xSum += tile.x;
+    stat.ySum += tile.y;
+    stat.count += 1;
+    provinceStats.set(bestSeed.id, stat);
+  }
+
+  return seeds
+    .map((seed, index): Province | undefined => {
+      const stat = provinceStats.get(seed.id);
+      if (!stat) {
+        return undefined;
+      }
+
+      return {
+        id: seed.id,
+        name: provinceName(index),
+        nationId: "",
+        centerX: stat.xSum / stat.count,
+        centerY: stat.ySum / stat.count,
+        tileCount: stat.count,
+      };
+    })
+    .filter((province): province is Province => province !== undefined);
+}
+
+function chooseCapitalProvinces(provinces: Province[], rng: () => number): Province[] {
+  const capitals: Province[] = [];
+  const first = provinces[Math.floor(rng() * provinces.length)];
+  capitals.push(first);
+
+  while (capitals.length < Math.min(nationCount, provinces.length)) {
+    let bestProvince = provinces[0];
+    let bestScore = -1;
+
+    for (const province of provinces) {
+      if (capitals.includes(province)) {
+        continue;
+      }
+
+      const nearestCapital = Math.min(
+        ...capitals.map((capital) =>
+          distance(province.centerX, province.centerY, capital.centerX, capital.centerY),
+        ),
+      );
+      const score = nearestCapital * (0.85 + rng() * 0.3);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestProvince = province;
+      }
+    }
+
+    capitals.push(bestProvince);
+  }
+
+  return capitals;
+}
+
+function buildNations(provinces: Province[], capitals: Province[]): Nation[] {
+  return capitals.map((capital, index) => {
+    const template = nationTemplates[index % nationTemplates.length];
+    return {
+      ...template,
+      capitalProvinceId: capital.id,
+    };
+  });
+}
+
+function assignNationsToProvinces(
+  provinces: Province[],
+  capitals: Province[],
+  seedHash: number,
+) {
+  for (const province of provinces) {
+    let bestCapital = capitals[0];
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const capital of capitals) {
+      const regionalNoise = noise2D(
+        province.centerX * 0.055 + capital.centerX,
+        province.centerY * 0.055 - capital.centerY,
+        seedHash + 1500,
+      );
+      const score =
+        distance(province.centerX, province.centerY, capital.centerX, capital.centerY) *
+          (0.88 + regionalNoise * 0.24) -
+        province.tileCount * 0.015;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestCapital = capital;
+      }
+    }
+
+    province.nationId = nationTemplates[capitals.indexOf(bestCapital)].id;
+  }
 }
 
 function buildBorders(
@@ -148,37 +286,22 @@ function buildBorders(
     const right = tileByCoord.get(`${tile.x + 1},${tile.y}`);
     const down = tileByCoord.get(`${tile.x},${tile.y + 1}`);
 
-    if (right && right.provinceId !== tile.provinceId) {
-      provinceEdges.push({ x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 });
-      if (sameNation(tile.provinceId, right.provinceId, provinceById) === false) {
-        nationEdges.push({ x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 });
-      }
-    }
+    addBorderBetween(tile, right, "vertical", provinceEdges, nationEdges, provinceById);
+    addBorderBetween(tile, down, "horizontal", provinceEdges, nationEdges, provinceById);
 
-    if (down && down.provinceId !== tile.provinceId) {
-      provinceEdges.push({ x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 });
-      if (sameNation(tile.provinceId, down.provinceId, provinceById) === false) {
-        nationEdges.push({ x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 });
-      }
-    }
-
-    if (tile.x === 0) {
-      provinceEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x, y2: tile.y + 1 });
+    if (tile.x === 0 && tile.provinceId) {
       nationEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x, y2: tile.y + 1 });
     }
 
-    if (tile.y === 0) {
-      provinceEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x + 1, y2: tile.y });
+    if (tile.y === 0 && tile.provinceId) {
       nationEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x + 1, y2: tile.y });
     }
 
-    if (tile.x === width - 1) {
-      provinceEdges.push({ x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 });
+    if (tile.x === width - 1 && tile.provinceId) {
       nationEdges.push({ x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 });
     }
 
-    if (tile.y === height - 1) {
-      provinceEdges.push({ x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 });
+    if (tile.y === height - 1 && tile.provinceId) {
       nationEdges.push({ x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 });
     }
   }
@@ -186,75 +309,208 @@ function buildBorders(
   return { provinceEdges, nationEdges };
 }
 
-function sameNation(
-  provinceA: string,
-  provinceB: string,
+function addBorderBetween(
+  tile: Tile,
+  neighbor: Tile | undefined,
+  direction: "horizontal" | "vertical",
+  provinceEdges: MapEdge[],
+  nationEdges: MapEdge[],
   provinceById: Map<string, Province>,
 ) {
-  return provinceById.get(provinceA)?.nationId === provinceById.get(provinceB)?.nationId;
+  if (!neighbor) {
+    return;
+  }
+
+  const edge =
+    direction === "vertical"
+      ? { x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 }
+      : { x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 };
+
+  if (tile.provinceId && neighbor.provinceId && tile.provinceId !== neighbor.provinceId) {
+    provinceEdges.push(edge);
+  }
+
+  if (isNationBorder(tile, neighbor, provinceById)) {
+    nationEdges.push(edge);
+  }
 }
 
-function terrainAt(x: number, y: number): Terrain {
-  const nx = x / width;
-  const ny = y / height;
-  const elevation =
-    Math.sin(x * 0.42) * 0.28 +
-    Math.cos(y * 0.36) * 0.23 +
-    Math.sin((x + y) * 0.18) * 0.21 +
-    0.5;
-  const moisture = Math.cos(x * 0.21 - y * 0.3) * 0.5 + 0.5;
-  const latitude = Math.abs(ny - 0.5) * 2;
+function isNationBorder(
+  tile: Tile,
+  neighbor: Tile,
+  provinceById: Map<string, Province>,
+) {
+  if (!tile.provinceId && !neighbor.provinceId) {
+    return false;
+  }
 
-  if (nx < 0.05 || ny < 0.06 || nx > 0.95 || ny > 0.94) {
+  if (!tile.provinceId || !neighbor.provinceId) {
+    return true;
+  }
+
+  return (
+    provinceById.get(tile.provinceId)?.nationId !==
+    provinceById.get(neighbor.provinceId)?.nationId
+  );
+}
+
+function sampleClimate(x: number, y: number, seedHash: number) {
+  const nx = x / (width - 1);
+  const ny = y / (height - 1);
+  const dx = Math.abs(nx - 0.5) * 2;
+  const dy = Math.abs(ny - 0.5) * 2;
+  const continentalShelf = 1 - (dx ** 2.5 * 0.56 + dy ** 2.2 * 0.5);
+  const broadLand = fbm(x * 0.018, y * 0.018, seedHash, 4);
+  const detail = fbm(x * 0.075 + 90, y * 0.075 - 30, seedHash + 37, 4);
+  const ridge = Math.abs(fbm(x * 0.05 - 10, y * 0.05 + 70, seedHash + 91, 3) - 0.5) * 2;
+  const elevation = clamp01(continentalShelf * 0.57 + broadLand * 0.58 + detail * 0.18 + ridge * 0.15 - 0.2);
+  const latitude = Math.abs(ny - 0.5) * 2;
+  const temperature = clamp01(1 - latitude * 0.82 - elevation * 0.22 + fbm(x * 0.04, y * 0.04, seedHash + 500, 3) * 0.18);
+  const oceanBonus = elevation < 0.46 ? 0.18 : 0;
+  const moisture = clamp01(
+    fbm(x * 0.045 + 200, y * 0.045 - 100, seedHash + 900, 4) * 0.74 +
+      (1 - elevation) * 0.18 +
+      oceanBonus,
+  );
+
+  return { elevation, temperature, moisture };
+}
+
+function terrainFromSample(sample: ReturnType<typeof sampleClimate>): Terrain {
+  if (sample.elevation < 0.39) {
+    return "ocean";
+  }
+
+  if (sample.elevation < 0.45) {
     return "coast";
   }
 
-  if (elevation > 1.08) {
+  if (sample.elevation > 0.82) {
     return "mountain";
   }
 
-  if (elevation > 0.9) {
+  if (sample.elevation > 0.68) {
     return "hill";
   }
 
-  if (moisture > 0.72 && latitude < 0.82) {
-    return "forest";
+  if (sample.temperature > 0.62 && sample.moisture < 0.34) {
+    return "desert";
   }
 
-  if (moisture < 0.18 && latitude < 0.7) {
-    return "desert";
+  if (sample.moisture > 0.62) {
+    return "forest";
   }
 
   return "plain";
 }
 
-function resourceAt(x: number, y: number): Resource | undefined {
-  const key = (x * 31 + y * 47 + x * y * 7) % 37;
-  const terrain = terrainAt(x, y);
+function resourceAt(
+  x: number,
+  y: number,
+  terrain: Terrain,
+  sample: ReturnType<typeof sampleClimate>,
+  seedHash: number,
+): Resource | undefined {
+  const roll = randomAt(x, y, seedHash + 3000);
 
-  if (key === 0 && terrain === "plain") {
+  if (terrain === "plain" && sample.moisture > 0.38 && roll < 0.08) {
     return "grain";
   }
 
-  if (key === 2 && terrain === "forest") {
+  if (terrain === "forest" && roll < 0.07) {
     return "timber";
   }
 
-  if (key === 4 && (terrain === "hill" || terrain === "mountain")) {
-    return "iron";
+  if ((terrain === "hill" || terrain === "mountain") && roll < 0.075) {
+    return randomAt(x, y, seedHash + 3010) < 0.68 ? "iron" : "coal";
   }
 
-  if (key === 7 && terrain === "hill") {
-    return "coal";
-  }
-
-  if (key === 10 && terrain === "coast") {
+  if ((terrain === "coast" || terrain === "desert") && roll < 0.035) {
     return "oil";
   }
 
   return undefined;
 }
 
-function provinceId(px: number, py: number) {
-  return `province-${py}-${px}`;
+function provinceName(index: number) {
+  const prefix = namePrefixes[index % namePrefixes.length];
+  const root = nameRoots[Math.floor(index / namePrefixes.length) % nameRoots.length];
+  return `${prefix}${root}`;
+}
+
+function isLand(tile: Tile) {
+  return tile.terrain !== "ocean";
+}
+
+function distance(x1: number, y1: number, x2: number, y2: number) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+function fbm(x: number, y: number, seed: number, octaves: number) {
+  let value = 0;
+  let amplitude = 0.5;
+  let frequency = 1;
+  let max = 0;
+
+  for (let i = 0; i < octaves; i += 1) {
+    value += noise2D(x * frequency, y * frequency, seed + i * 1013) * amplitude;
+    max += amplitude;
+    amplitude *= 0.52;
+    frequency *= 2;
+  }
+
+  return value / max;
+}
+
+function noise2D(x: number, y: number, seed: number) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const sx = smoothstep(x - x0);
+  const sy = smoothstep(y - y0);
+  const n00 = randomAt(x0, y0, seed);
+  const n10 = randomAt(x1, y0, seed);
+  const n01 = randomAt(x0, y1, seed);
+  const n11 = randomAt(x1, y1, seed);
+  const ix0 = lerp(n00, n10, sx);
+  const ix1 = lerp(n01, n11, sx);
+
+  return lerp(ix0, ix1, sy);
+}
+
+function randomAt(x: number, y: number, seed: number) {
+  let h = seed ^ Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+function hashString(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed: number) {
+  return () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function smoothstep(value: number) {
+  return value * value * (3 - 2 * value);
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
 }

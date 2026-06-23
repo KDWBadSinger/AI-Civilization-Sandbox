@@ -7,19 +7,26 @@ export type Nation = {
   name: string;
   color: string;
   numericColor: number;
+  capitalProvinceId: string;
 };
 
 export type Province = {
   id: string;
   name: string;
   nationId: string;
+  centerX: number;
+  centerY: number;
+  tileCount: number;
 };
 
 export type Tile = {
   x: number;
   y: number;
   terrain: Terrain;
-  provinceId: string;
+  elevation: number;
+  temperature: number;
+  moisture: number;
+  provinceId?: string;
   resource?: Resource;
 };
 
@@ -31,6 +38,7 @@ export type MapEdge = {
 };
 
 export type World = {
+  seed: string;
   width: number;
   height: number;
   tiles: Tile[];

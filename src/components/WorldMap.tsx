@@ -6,9 +6,9 @@ type WorldMapProps = {
   world: World;
 };
 
-const TILE_SIZE = 28;
-const MIN_SCALE = 0.55;
-const MAX_SCALE = 3.4;
+const TILE_SIZE = 14;
+const MIN_SCALE = 0.35;
+const MAX_SCALE = 4.5;
 
 const terrainColors = {
   ocean: 0x315f8f,
@@ -148,7 +148,7 @@ export function WorldMap({ world }: WorldMapProps) {
 
   return (
     <div className="worldMap" ref={hostRef}>
-      <div className="mapHint">Drag to pan · Wheel to zoom · {Math.round(zoom * 100)}%</div>
+      <div className="mapHint">Drag to pan / Wheel to zoom / {Math.round(zoom * 100)}%</div>
     </div>
   );
 }
@@ -165,8 +165,12 @@ function drawWorld(container: Container, world: World) {
     const y = tile.y * TILE_SIZE;
     terrain.rect(x, y, TILE_SIZE, TILE_SIZE).fill(terrainColors[tile.terrain]);
 
-    const province = world.provinceById.get(tile.provinceId);
-    if (province) {
+    if (tile.provinceId) {
+      const province = world.provinceById.get(tile.provinceId);
+      if (!province) {
+        continue;
+      }
+
       const nation = world.nationById.get(province.nationId);
       if (nation) {
         ownership
@@ -177,14 +181,14 @@ function drawWorld(container: Container, world: World) {
 
     if (tile.resource) {
       resources
-        .circle(x + TILE_SIZE * 0.72, y + TILE_SIZE * 0.28, 4.3)
+        .circle(x + TILE_SIZE * 0.72, y + TILE_SIZE * 0.28, 2.8)
         .fill(resourceColors[tile.resource])
-        .stroke({ color: 0xffffff, width: 1.2, alpha: 0.72 });
+        .stroke({ color: 0xffffff, width: 0.9, alpha: 0.72 });
     }
   }
 
-  drawDashedEdges(provinceBorders, world.provinceEdges, 0xe8f2dc, 1.2, 6, 4, 0.58);
-  drawSolidEdges(nationBorders, world.nationEdges, 0xf8fbf1, 3.1, 0.92);
+  drawDashedEdges(provinceBorders, world.provinceEdges, 0xe8f2dc, 0.95, 4, 3, 0.58);
+  drawSolidEdges(nationBorders, world.nationEdges, 0xf8fbf1, 2.4, 0.92);
 
   container.addChild(terrain, ownership, resources, provinceBorders, nationBorders);
 }

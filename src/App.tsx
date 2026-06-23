@@ -16,6 +16,16 @@ export default function App() {
         </header>
         <div className="statGrid">
           <div>
+            <span>Seed</span>
+            <strong className="smallStat">{world.seed}</strong>
+          </div>
+          <div>
+            <span>Map</span>
+            <strong>
+              {world.width}x{world.height}
+            </strong>
+          </div>
+          <div>
             <span>Provinces</span>
             <strong>{world.provinces.length}</strong>
           </div>

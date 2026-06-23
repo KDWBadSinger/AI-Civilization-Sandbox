@@ -133,6 +133,15 @@ h2 {
   font-size: 24px;
 }
 
+.statGrid .smallStat {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .legend,
 .nationList {
   padding-top: 4px;
