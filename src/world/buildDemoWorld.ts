@@ -290,19 +290,43 @@ function buildBorders(
     addBorderBetween(tile, down, "horizontal", provinceEdges, nationEdges, provinceById);
 
     if (tile.x === 0 && tile.provinceId) {
-      nationEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x, y2: tile.y + 1 });
+      nationEdges.push({
+        x1: tile.x,
+        y1: tile.y,
+        x2: tile.x,
+        y2: tile.y + 1,
+        nationId: provinceById.get(tile.provinceId)?.nationId,
+      });
     }
 
     if (tile.y === 0 && tile.provinceId) {
-      nationEdges.push({ x1: tile.x, y1: tile.y, x2: tile.x + 1, y2: tile.y });
+      nationEdges.push({
+        x1: tile.x,
+        y1: tile.y,
+        x2: tile.x + 1,
+        y2: tile.y,
+        nationId: provinceById.get(tile.provinceId)?.nationId,
+      });
     }
 
     if (tile.x === width - 1 && tile.provinceId) {
-      nationEdges.push({ x1: tile.x + 1, y1: tile.y, x2: tile.x + 1, y2: tile.y + 1 });
+      nationEdges.push({
+        x1: tile.x + 1,
+        y1: tile.y,
+        x2: tile.x + 1,
+        y2: tile.y + 1,
+        nationId: provinceById.get(tile.provinceId)?.nationId,
+      });
     }
 
     if (tile.y === height - 1 && tile.provinceId) {
-      nationEdges.push({ x1: tile.x, y1: tile.y + 1, x2: tile.x + 1, y2: tile.y + 1 });
+      nationEdges.push({
+        x1: tile.x,
+        y1: tile.y + 1,
+        x2: tile.x + 1,
+        y2: tile.y + 1,
+        nationId: provinceById.get(tile.provinceId)?.nationId,
+      });
     }
   }
 
@@ -331,8 +355,24 @@ function addBorderBetween(
   }
 
   if (isNationBorder(tile, neighbor, provinceById)) {
-    nationEdges.push(edge);
+    nationEdges.push({ ...edge, nationId: nationIdForEdge(tile, neighbor, provinceById) });
   }
+}
+
+function nationIdForEdge(
+  tile: Tile,
+  neighbor: Tile,
+  provinceById: Map<string, Province>,
+) {
+  if (tile.provinceId) {
+    return provinceById.get(tile.provinceId)?.nationId;
+  }
+
+  if (neighbor.provinceId) {
+    return provinceById.get(neighbor.provinceId)?.nationId;
+  }
+
+  return undefined;
 }
 
 function isNationBorder(

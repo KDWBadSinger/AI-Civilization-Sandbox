@@ -35,6 +35,7 @@ export type MapEdge = {
   y1: number;
   x2: number;
   y2: number;
+  nationId?: string;
 };
 
 export type World = {

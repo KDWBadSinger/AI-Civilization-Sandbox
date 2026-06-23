@@ -21,4 +21,7 @@ Current map prototype:
 - Split land into irregular provinces.
 - Assign generated provinces to six starting nations.
 - Province borders are rendered as light dashed lines.
-- Nation borders are rendered as thicker solid lines.
+- Nation borders are rendered with a colored country edge and a light solid line.
+- Nation names are shown near capital provinces.
+- Click a province to highlight it and inspect terrain, climate, area, and resources.
+- Switch between political, terrain, and resources map modes.
