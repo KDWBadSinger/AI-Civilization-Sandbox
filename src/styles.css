@@ -133,9 +133,51 @@ h2 {
   font-size: 24px;
 }
 
+.statGrid .smallStat {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .legend,
+.mapModePanel,
 .nationList {
   padding-top: 4px;
+}
+
+.segmentedControl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 8px;
+  background: #111a1f;
+}
+
+.segmentedControl button {
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  color: #b9c8c1;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segmentedControl button:hover {
+  color: #eef3ec;
+  background: rgb(255 255 255 / 7%);
+}
+
+.segmentedControl button.active {
+  color: #10161b;
+  background: #dce7df;
+  font-weight: 700;
 }
 
 .legend p,
@@ -162,6 +204,11 @@ h2 {
   border-top: 3px solid #f8fbf1;
 }
 
+.line.nationLine {
+  border-top: 4px solid #4d8bff;
+  box-shadow: 0 1px 0 #f8fbf1;
+}
+
 .resourceMark,
 .nationList span {
   display: inline-block;
@@ -178,6 +225,87 @@ h2 {
 
 .nationList span {
   border-radius: 3px;
+}
+
+.provinceDetails {
+  padding-top: 4px;
+}
+
+.provinceTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.provinceTitle > span {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 36px;
+  border: 1px solid rgb(255 255 255 / 66%);
+  border-radius: 4px;
+}
+
+.provinceTitle strong {
+  display: block;
+  overflow: hidden;
+  color: #f3f8f0;
+  font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provinceTitle p {
+  margin-top: 4px;
+  color: #9fb7b1;
+  font-size: 13px;
+}
+
+.provinceDetails dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.provinceDetails dl div {
+  padding: 9px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 7px;
+  background: #202b30;
+}
+
+.provinceDetails dt {
+  color: #9fb7b1;
+  font-size: 11px;
+}
+
+.provinceDetails dd {
+  margin: 5px 0 0;
+  color: #eef3ec;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.detailBlock {
+  padding: 10px 0;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.detailBlock span {
+  display: block;
+  margin-bottom: 5px;
+  color: #9fb7b1;
+  font-size: 12px;
+}
+
+.detailBlock p {
+  color: #dce7df;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 @media (max-width: 760px) {

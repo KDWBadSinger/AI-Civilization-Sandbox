@@ -15,5 +15,13 @@ Current map prototype:
 
 - Drag to pan the world map.
 - Use the mouse wheel to zoom.
+- Generate a deterministic 96x64 world from a seed.
+- Build terrain from elevation, temperature, and moisture samples.
+- Place terrain-aware resource nodes.
+- Split land into irregular provinces.
+- Assign generated provinces to six starting nations.
 - Province borders are rendered as light dashed lines.
-- Nation borders are rendered as thicker solid lines.
+- Nation borders are rendered with a colored country edge and a light solid line.
+- Nation names are shown near capital provinces.
+- Click a province to highlight it and inspect terrain, climate, area, and resources.
+- Switch between political, terrain, and resources map modes.
