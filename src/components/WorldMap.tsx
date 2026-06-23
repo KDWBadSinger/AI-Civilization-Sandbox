@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
+import { formatResourceName, getTileMonthlyYield } from "../world/economy";
 import type { MapEdge, Tile, World } from "../world/types";
 
 export type MapMode = "political" | "terrain" | "resources";
@@ -9,6 +10,12 @@ type WorldMapProps = {
   mapMode: MapMode;
   selectedProvinceId?: string;
   onSelectProvince: (provinceId: string | undefined) => void;
+};
+
+type ResourceTooltip = {
+  x: number;
+  y: number;
+  label: string;
 };
 
 const TILE_SIZE = 14;
@@ -35,7 +42,13 @@ const resourceColors = {
 
 export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince }: WorldMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const selectedLayerRef = useRef<Graphics | null>(null);
+  const tileByCoord = useMemo(
+    () => new Map(world.tiles.map((tile) => [`${tile.x},${tile.y}`, tile])),
+    [world],
+  );
   const [zoom, setZoom] = useState(1);
+  const [resourceTooltip, setResourceTooltip] = useState<ResourceTooltip | undefined>();
 
   useEffect(() => {
     const host = hostRef.current;
@@ -68,9 +81,11 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
       const viewport = new Container();
       pixiApp.stage.addChild(viewport);
 
-      const tileByCoord = new Map(world.tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
-
-      drawWorld(viewport, world, mapMode, selectedProvinceId, tileByCoord);
+      drawWorld(viewport, world, mapMode, tileByCoord);
+      const selectedLayer = new Graphics();
+      selectedLayerRef.current = selectedLayer;
+      viewport.addChild(selectedLayer);
+      drawSelectedProvince(selectedLayer, selectedProvinceId, tileByCoord);
       setZoom(centerWorld(pixiApp, viewport, world));
 
       let dragging = false;
@@ -88,9 +103,12 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
 
       pixiApp.stage.on("pointermove", (event) => {
         if (!dragging) {
+          const tooltip = getResourceTooltip(event.global, viewport, tileByCoord, mapMode);
+          setResourceTooltip(tooltip);
           return;
         }
 
+        setResourceTooltip(undefined);
         const dx = event.global.x - lastPointer.x;
         const dy = event.global.y - lastPointer.y;
         viewport.position.set(viewport.x + dx, viewport.y + dy);
@@ -135,7 +153,10 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
         );
       };
 
+      const handleMouseLeave = () => setResourceTooltip(undefined);
+
       pixiApp.canvas.addEventListener("wheel", handleWheel, { passive: false });
+      pixiApp.canvas.addEventListener("mouseleave", handleMouseLeave);
 
       resizeObserver = new ResizeObserver(() => {
         pixiApp.stage.hitArea = pixiApp.screen;
@@ -144,6 +165,7 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
 
       return () => {
         pixiApp.canvas.removeEventListener("wheel", handleWheel);
+        pixiApp.canvas.removeEventListener("mouseleave", handleMouseLeave);
       };
     };
 
@@ -156,25 +178,78 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
       disposed = true;
       cleanupWheel?.();
       resizeObserver?.disconnect();
+      selectedLayerRef.current = null;
       if (app?.canvas.parentElement === host) {
         host.removeChild(app.canvas);
       }
       app?.destroy(true, { children: true });
     };
-  }, [world, mapMode, selectedProvinceId, onSelectProvince]);
+  }, [world, mapMode, onSelectProvince, tileByCoord]);
+
+  useEffect(() => {
+    const selectedLayer = selectedLayerRef.current;
+    if (!selectedLayer) {
+      return;
+    }
+
+    selectedLayer.clear();
+    drawSelectedProvince(selectedLayer, selectedProvinceId, tileByCoord);
+  }, [selectedProvinceId, tileByCoord]);
 
   return (
     <div className="worldMap" ref={hostRef}>
       <div className="mapHint">Drag to pan / Wheel to zoom / {Math.round(zoom * 100)}%</div>
+      {resourceTooltip && (
+        <div className="resourceTooltip" style={{ left: resourceTooltip.x, top: resourceTooltip.y }}>
+          {resourceTooltip.label}
+        </div>
+      )}
     </div>
   );
+}
+
+function getResourceTooltip(
+  globalPoint: { x: number; y: number },
+  viewport: Container,
+  tileByCoord: Map<string, Tile>,
+  mapMode: MapMode,
+): ResourceTooltip | undefined {
+  if (mapMode === "terrain") {
+    return undefined;
+  }
+
+  const local = viewport.toLocal(globalPoint);
+  const tileX = Math.floor(local.x / TILE_SIZE);
+  const tileY = Math.floor(local.y / TILE_SIZE);
+  const tile = tileByCoord.get(`${tileX},${tileY}`);
+  const yieldValue = tile ? getTileMonthlyYield(tile) : undefined;
+
+  if (!tile || !yieldValue) {
+    return undefined;
+  }
+
+  const resourcePoint = {
+    x: tileX * TILE_SIZE + TILE_SIZE * 0.72,
+    y: tileY * TILE_SIZE + TILE_SIZE * 0.28,
+  };
+  const distanceToResource = distance(local.x, local.y, resourcePoint.x, resourcePoint.y);
+  const hitRadius = mapMode === "resources" ? 7.5 : 5;
+
+  if (distanceToResource > hitRadius) {
+    return undefined;
+  }
+
+  return {
+    x: globalPoint.x + 12,
+    y: Math.max(12, globalPoint.y - 36),
+    label: `${formatResourceName(yieldValue.resource)} +${yieldValue.amount}/month`,
+  };
 }
 
 function drawWorld(
   container: Container,
   world: World,
   mapMode: MapMode,
-  selectedProvinceId: string | undefined,
   tileByCoord: Map<string, Tile>,
 ) {
   const terrain = new Graphics();
@@ -183,7 +258,6 @@ function drawWorld(
   const provinceBorders = new Graphics();
   const nationBorderGlow = new Graphics();
   const nationBorders = new Graphics();
-  const selectedProvince = new Graphics();
   const nationLabels = new Container();
 
   for (const tile of world.tiles) {
@@ -219,7 +293,6 @@ function drawWorld(
   drawDashedEdges(provinceBorders, world.provinceEdges, 0xe8f2dc, 0.95, 4, 3, 0.58);
   drawNationEdges(nationBorderGlow, world.nationEdges, world, 4.4, 0.84);
   drawSolidEdges(nationBorders, world.nationEdges, 0xf8fbf1, 1.65, 0.94);
-  drawSelectedProvince(selectedProvince, selectedProvinceId, tileByCoord);
   drawNationLabels(nationLabels, world);
 
   container.addChild(
@@ -229,7 +302,6 @@ function drawWorld(
     provinceBorders,
     nationBorderGlow,
     nationBorders,
-    selectedProvince,
     nationLabels,
   );
 }

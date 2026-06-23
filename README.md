@@ -25,3 +25,7 @@ Current map prototype:
 - Nation names are shown near capital provinces.
 - Click a province to highlight it and inspect terrain, climate, area, and resources.
 - Switch between political, terrain, and resources map modes.
+- Run, pause, and speed up world time at 1x, 2x, or 5x.
+- Collapse or expand the right-side information panel.
+- Hover resource nodes to inspect monthly output.
+- Click a nation name to inspect its capital, province count, monthly output, current resources, and resource sites.
