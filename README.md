@@ -33,6 +33,9 @@ Current map prototype:
 - Settle national gold and resource stockpiles every simulated month.
 - Generate initial nation-to-nation attitude values from -100 to 100.
 - Inspect each nation's attitude toward other nations in the nation detail panel.
+- Store expansion, economy, and diplomacy policy directions per nation and reassess them every six simulated months.
+- Assign up to three parallel spy mission intents per nation.
+- Inspect each nation's current policies and spy mission intents in the nation detail panel.
 - Collapse or expand the right-side information panel.
 - Hover resource nodes to inspect monthly output.
 - Click a nation name to inspect its capital city, major cities, province count, monthly output, current resources, and resource sites.

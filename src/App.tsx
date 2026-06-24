@@ -4,6 +4,11 @@ import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
 import { addYield, formatResourceName, getTileMonthlyYield, type ResourceTotals } from "./world/economy";
 import {
+  advanceNationPolicies,
+  buildInitialNationPolicies,
+  type NationPolicyState,
+} from "./world/policyAI";
+import {
   buildInitialNationRelations,
   getAttitudeLabel,
   getNationRelationsFor,
@@ -36,6 +41,9 @@ export default function App() {
   const [isPanelOpen, setIsPanelOpen] = useState(true);
   const [nationRelations] = useState(() => buildInitialNationRelations(world));
   const [nationStockpiles, setNationStockpiles] = useState(() => buildInitialNationStockpiles(world));
+  const [nationPolicies, setNationPolicies] = useState(() =>
+    buildInitialNationPolicies(world, nationRelations, buildInitialNationStockpiles(world), 0),
+  );
   const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
   const [selectedNationId, setSelectedNationId] = useState<string | undefined>();
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | undefined>(
@@ -50,9 +58,11 @@ export default function App() {
     () => buildNationStats(
       selectedNationId,
       nationStockpiles[selectedNationId ?? ""],
+      nationPolicies[selectedNationId ?? ""],
       nationRelations,
+      elapsedMonths,
     ),
-    [nationRelations, nationStockpiles, selectedNationId],
+    [elapsedMonths, nationPolicies, nationRelations, nationStockpiles, selectedNationId],
   );
   const selectedCityStats = useMemo(
     () => buildCityStats(selectedCityId),
@@ -65,12 +75,30 @@ export default function App() {
     }
 
     const timer = window.setInterval(() => {
-      setElapsedMonths((current) => current + speed);
-      setNationStockpiles((current) => settleNationStockpiles(world, current, speed));
+      setElapsedMonths((currentMonth) => {
+        const nextMonth = currentMonth + speed;
+
+        setNationStockpiles((currentStockpiles) => {
+          const nextStockpiles = settleNationStockpiles(world, currentStockpiles, speed);
+          setNationPolicies((currentPolicies) =>
+            advanceNationPolicies(
+              world,
+              nationRelations,
+              nextStockpiles,
+              currentPolicies,
+              currentMonth,
+              nextMonth,
+            ),
+          );
+          return nextStockpiles;
+        });
+
+        return nextMonth;
+      });
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isRunning, speed]);
+  }, [isRunning, nationRelations, speed]);
 
   const handleSelectProvince = useCallback((provinceId: string | undefined) => {
     if (provinceId) {
@@ -396,6 +424,7 @@ function NationDetailPanel({
           <strong>{stats.resourceSiteCount}</strong>
         </div>
       </div>
+      <PolicyPanel monthsUntilReview={stats.monthsUntilPolicyReview} policy={stats.policy} />
       <section className="resourceSummary">
         <h2>Major Cities</h2>
         <CityRows cities={stats.majorCities} onSelectCity={onSelectCity} />
@@ -417,6 +446,98 @@ function NationDetailPanel({
         <ResourceRows totals={stats.resourceSiteCounts} suffix="sites" />
       </section>
     </section>
+  );
+}
+
+function PolicyPanel({
+  monthsUntilReview,
+  policy,
+}: {
+  monthsUntilReview: number;
+  policy: NationPolicyState | undefined;
+}) {
+  if (!policy) {
+    return <p className="emptyState">No policy assessment available</p>;
+  }
+
+  return (
+    <section className="policyPanel">
+      <div className="sectionTitleRow">
+        <h2>AI Policy</h2>
+        <span>Next in {monthsUntilReview} months</span>
+      </div>
+      <div className="policyRows">
+        <PolicyRow label="Expansion" policy={policy.expansion} />
+        <PolicyRow label="Economy" policy={policy.economy} />
+        <PolicyRow label="Diplomacy" policy={policy.diplomacy} />
+      </div>
+      <section className="spyMissionSection">
+        <div className="sectionTitleRow">
+          <h2>Spy Missions</h2>
+          <span>{policy.spyMissions.length}/3 assigned</span>
+        </div>
+        <SpyMissionRows missions={policy.spyMissions} />
+      </section>
+    </section>
+  );
+}
+
+function PolicyRow({
+  label,
+  policy,
+}: {
+  label: string;
+  policy: NationPolicyState["expansion" | "economy" | "diplomacy"];
+}) {
+  const targetNation = policy.targetNationId ? world.nationById.get(policy.targetNationId) : undefined;
+
+  return (
+    <p>
+      <span>
+        <strong>{label}</strong>
+        <em>{policy.rationale}</em>
+      </span>
+      <b>
+        {policy.label}
+        {(targetNation || policy.targetResource) && (
+          <small>
+            {targetNation?.name}
+            {targetNation && policy.targetResource ? " / " : ""}
+            {policy.targetResource ? formatResourceName(policy.targetResource) : ""}
+          </small>
+        )}
+      </b>
+    </p>
+  );
+}
+
+function SpyMissionRows({ missions }: { missions: NationPolicyState["spyMissions"] }) {
+  if (missions.length === 0) {
+    return <p className="emptyState">No active spy mission intent</p>;
+  }
+
+  return (
+    <div className="spyMissionRows">
+      {missions.map((mission) => {
+        const targetNation = mission.targetNationId ? world.nationById.get(mission.targetNationId) : undefined;
+        const secondaryTarget = mission.secondaryTargetNationId
+          ? world.nationById.get(mission.secondaryTargetNationId)
+          : undefined;
+
+        return (
+          <p key={mission.id}>
+            <span>
+              <strong>{mission.label}</strong>
+              <em>{mission.rationale}</em>
+            </span>
+            <b>
+              {targetNation?.name ?? "No target"}
+              {secondaryTarget && <small>vs {secondaryTarget.name}</small>}
+            </b>
+          </p>
+        );
+      })}
+    </div>
   );
 }
 
@@ -587,7 +708,9 @@ function buildCityStats(cityId: string | undefined) {
 function buildNationStats(
   nationId: string | undefined,
   stockpile: NationStockpile | undefined,
+  policy: NationPolicyState | undefined,
   relations: NationRelations,
+  elapsedMonths: number,
 ) {
   if (!nationId) {
     return undefined;
@@ -631,7 +754,9 @@ function buildNationStats(
     majorCities: cities.slice(0, 6),
     monthlyIncome,
     monthlyOutput,
+    monthsUntilPolicyReview: policy ? Math.max(0, policy.nextDecisionMonth - elapsedMonths) : 0,
     nation,
+    policy,
     provinceCount: provinces.length,
     relations: getNationRelationsFor(relations, nationId),
     resourceSiteCount: Object.values(resourceSiteCounts).reduce((sum, count) => sum + count, 0),
