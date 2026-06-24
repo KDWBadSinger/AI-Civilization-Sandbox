@@ -4,6 +4,14 @@ import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
 import { addYield, formatResourceName, getTileMonthlyYield, type ResourceTotals } from "./world/economy";
 import {
+  buildInitialNationRelations,
+  getAttitudeLabel,
+  getNationRelationsFor,
+  otherNationId,
+  type NationRelation,
+  type NationRelations,
+} from "./world/relationships";
+import {
   buildInitialNationStockpiles,
   calculateNationMonthlyIncome,
   settleNationStockpiles,
@@ -26,6 +34,7 @@ export default function App() {
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
   const [elapsedMonths, setElapsedMonths] = useState(0);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [nationRelations] = useState(() => buildInitialNationRelations(world));
   const [nationStockpiles, setNationStockpiles] = useState(() => buildInitialNationStockpiles(world));
   const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
   const [selectedNationId, setSelectedNationId] = useState<string | undefined>();
@@ -38,8 +47,12 @@ export default function App() {
     [selectedProvinceId],
   );
   const selectedNationStats = useMemo(
-    () => buildNationStats(selectedNationId, nationStockpiles[selectedNationId ?? ""]),
-    [nationStockpiles, selectedNationId],
+    () => buildNationStats(
+      selectedNationId,
+      nationStockpiles[selectedNationId ?? ""],
+      nationRelations,
+    ),
+    [nationRelations, nationStockpiles, selectedNationId],
   );
   const selectedCityStats = useMemo(
     () => buildCityStats(selectedCityId),
@@ -388,6 +401,10 @@ function NationDetailPanel({
         <CityRows cities={stats.majorCities} onSelectCity={onSelectCity} />
       </section>
       <section className="resourceSummary">
+        <h2>Relations</h2>
+        <RelationRows perspectiveNationId={stats.nation.id} relations={stats.relations} />
+      </section>
+      <section className="resourceSummary">
         <h2>Monthly Output</h2>
         <ResourceRows totals={stats.monthlyOutput} suffix="/month" />
       </section>
@@ -449,6 +466,43 @@ function CityRows({
   );
 }
 
+function RelationRows({
+  perspectiveNationId,
+  relations,
+}: {
+  perspectiveNationId?: string;
+  relations: NationRelation[];
+}) {
+  if (relations.length === 0) {
+    return <p className="emptyState">No known relations</p>;
+  }
+
+  return (
+    <div className="relationRows">
+      {relations.map((relation) => {
+        const otherId = perspectiveNationId ? otherNationId(relation, perspectiveNationId) : undefined;
+        const nationA = world.nationById.get(relation.nationAId);
+        const nationB = world.nationById.get(relation.nationBId);
+        const label = otherId
+          ? world.nationById.get(otherId)?.name ?? "Unknown nation"
+          : `${nationA?.name ?? "Unknown"} / ${nationB?.name ?? "Unknown"}`;
+
+        return (
+          <p key={`${relation.nationAId}-${relation.nationBId}`}>
+            <span>
+              <strong>{label}</strong>
+              <em>Attitude {relation.attitude}</em>
+            </span>
+            <b className={`attitudeBadge ${attitudeClassName(relation.attitude)}`}>
+              {getAttitudeLabel(relation.attitude)}
+            </b>
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResourceRows({
   includeZero = false,
   suffix = "",
@@ -479,6 +533,11 @@ function ResourceRows({
         ))}
     </div>
   );
+}
+
+function attitudeClassName(attitude: number) {
+  const label = getAttitudeLabel(attitude).toLowerCase();
+  return label as "friendly" | "hostile" | "neutral" | "trusted" | "wary";
 }
 
 function formatWorldTime(elapsedMonths: number) {
@@ -525,7 +584,11 @@ function buildCityStats(cityId: string | undefined) {
   };
 }
 
-function buildNationStats(nationId: string | undefined, stockpile: NationStockpile | undefined) {
+function buildNationStats(
+  nationId: string | undefined,
+  stockpile: NationStockpile | undefined,
+  relations: NationRelations,
+) {
   if (!nationId) {
     return undefined;
   }
@@ -570,6 +633,7 @@ function buildNationStats(nationId: string | undefined, stockpile: NationStockpi
     monthlyOutput,
     nation,
     provinceCount: provinces.length,
+    relations: getNationRelationsFor(relations, nationId),
     resourceSiteCount: Object.values(resourceSiteCounts).reduce((sum, count) => sum + count, 0),
     resourceSiteCounts,
     stockpile: stockpile ?? { gold: 0, resources: {} },
