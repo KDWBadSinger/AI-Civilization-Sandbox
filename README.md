@@ -33,9 +33,16 @@ Current map prototype:
 - Settle national gold and resource stockpiles every simulated month.
 - Generate initial nation-to-nation attitude values from -100 to 100.
 - Inspect each nation's attitude toward other nations in the nation detail panel.
+- Store diplomacy state separately from relations, including wars, alliances, vassal contracts, truces, and proposals.
+- Inspect each nation's active diplomacy status in the nation detail panel.
+- Execute diplomacy policies into wars or pending diplomacy proposals during monthly simulation.
+- Evaluate diplomacy proposals after they have been pending for at least one simulated month.
+- Record major diplomatic events in a scrollable left-side event log.
+- Switch the event log between a world overview and a per-nation two-year history.
 - Store expansion, economy, and diplomacy policy directions per nation and reassess them every six simulated months.
 - Assign up to three parallel spy mission intents per nation.
 - Inspect each nation's current policies and spy mission intents in the nation detail panel.
+- Return from a city detail back to the nation detail panel when the city was opened from that nation.
 - Collapse or expand the right-side information panel.
 - Hover resource nodes to inspect monthly output.
 - Click a nation name to inspect its capital city, major cities, province count, monthly output, current resources, and resource sites.

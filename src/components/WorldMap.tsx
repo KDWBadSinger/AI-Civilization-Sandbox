@@ -66,6 +66,7 @@ export function WorldMap({
     }
 
     let disposed = false;
+    let resizeFrame = 0;
     let resizeObserver: ResizeObserver | undefined;
     let app: Application | undefined;
 
@@ -86,6 +87,7 @@ export function WorldMap({
 
       app = pixiApp;
       host.appendChild(pixiApp.canvas);
+      syncRendererSize(pixiApp, host);
 
       const viewport = new Container();
       pixiApp.stage.addChild(viewport);
@@ -176,7 +178,11 @@ export function WorldMap({
       pixiApp.canvas.addEventListener("mouseleave", handleMouseLeave);
 
       resizeObserver = new ResizeObserver(() => {
-        pixiApp.stage.hitArea = pixiApp.screen;
+        window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(() => {
+          syncRendererSize(pixiApp, host);
+          pixiApp.stage.hitArea = pixiApp.screen;
+        });
       });
       resizeObserver.observe(host);
 
@@ -193,6 +199,7 @@ export function WorldMap({
 
     return () => {
       disposed = true;
+      window.cancelAnimationFrame(resizeFrame);
       cleanupWheel?.();
       resizeObserver?.disconnect();
       selectedLayerRef.current = null;
@@ -329,6 +336,17 @@ function drawWorld(
     cityLabels,
     nationLabels,
   );
+}
+
+function syncRendererSize(app: Application, host: HTMLElement) {
+  const width = Math.max(1, Math.floor(host.clientWidth));
+  const height = Math.max(1, Math.floor(host.clientHeight));
+
+  if (app.screen.width !== width || app.screen.height !== height) {
+    app.renderer.resize(width, height);
+  }
+
+  app.stage.hitArea = app.screen;
 }
 
 function cityAtPoint(x: number, y: number, world: World) {

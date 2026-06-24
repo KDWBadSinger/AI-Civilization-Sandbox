@@ -2,7 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type MapMode, WorldMap } from "./components/WorldMap";
 import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
+import {
+  buildInitialDiplomacyState,
+  evaluateDiplomaticProposalsWithEvents,
+  executeDiplomacyPoliciesWithEvents,
+  formatProposalType,
+  getNationDiplomacySummary,
+  getOtherTreatyNationId,
+  type NationDiplomacySummary,
+} from "./world/diplomacy";
 import { addYield, formatResourceName, getTileMonthlyYield, type ResourceTotals } from "./world/economy";
+import {
+  filterEventsForNation,
+  sortEventsNewestFirst,
+  type GameEvent,
+} from "./world/events";
 import {
   advanceNationPolicies,
   buildInitialNationPolicies,
@@ -22,7 +36,7 @@ import {
   settleNationStockpiles,
   type NationStockpile,
 } from "./world/settlement";
-import type { City, Resource, Terrain, Tile } from "./world/types";
+import type { City, Nation, Resource, Terrain, Tile } from "./world/types";
 
 const world = buildDemoWorld();
 const mapModes: { id: MapMode; label: string }[] = [
@@ -33,23 +47,44 @@ const mapModes: { id: MapMode; label: string }[] = [
 const speedOptions = [1, 2, 5] as const;
 type SimulationSpeed = (typeof speedOptions)[number];
 
+function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean) {
+  return [
+    "appShell",
+    isPanelOpen ? "" : "panelCollapsed",
+    isEventPanelOpen ? "eventPanelOpen" : "eventPanelCollapsed",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export default function App() {
   const [mapMode, setMapMode] = useState<MapMode>("political");
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
   const [elapsedMonths, setElapsedMonths] = useState(0);
+  const [events, setEvents] = useState<GameEvent[]>([]);
+  const [eventLogMode, setEventLogMode] = useState<"nation" | "overview">("overview");
+  const [eventNationId, setEventNationId] = useState<string>(world.nations[0]?.id ?? "");
+  const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [diplomacy, setDiplomacy] = useState(() => buildInitialDiplomacyState(world));
   const [nationRelations] = useState(() => buildInitialNationRelations(world));
   const [nationStockpiles, setNationStockpiles] = useState(() => buildInitialNationStockpiles(world));
   const [nationPolicies, setNationPolicies] = useState(() =>
     buildInitialNationPolicies(world, nationRelations, buildInitialNationStockpiles(world), 0),
   );
   const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
+  const [cityReturnNationId, setCityReturnNationId] = useState<string | undefined>();
   const [selectedNationId, setSelectedNationId] = useState<string | undefined>();
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | undefined>(
     world.provinces[0]?.id,
   );
   const worldTime = useMemo(() => formatWorldTime(elapsedMonths), [elapsedMonths]);
+  const overviewEvents = useMemo(() => sortEventsNewestFirst(events).slice(0, 80), [events]);
+  const nationEvents = useMemo(
+    () => filterEventsForNation(events, eventNationId, Math.max(0, elapsedMonths - 24)),
+    [elapsedMonths, eventNationId, events],
+  );
   const selectedProvinceStats = useMemo(
     () => buildProvinceStats(selectedProvinceId),
     [selectedProvinceId],
@@ -60,9 +95,10 @@ export default function App() {
       nationStockpiles[selectedNationId ?? ""],
       nationPolicies[selectedNationId ?? ""],
       nationRelations,
+      diplomacy,
       elapsedMonths,
     ),
-    [elapsedMonths, nationPolicies, nationRelations, nationStockpiles, selectedNationId],
+    [diplomacy, elapsedMonths, nationPolicies, nationRelations, nationStockpiles, selectedNationId],
   );
   const selectedCityStats = useMemo(
     () => buildCityStats(selectedCityId),
@@ -81,15 +117,38 @@ export default function App() {
         setNationStockpiles((currentStockpiles) => {
           const nextStockpiles = settleNationStockpiles(world, currentStockpiles, speed);
           setNationPolicies((currentPolicies) =>
-            advanceNationPolicies(
+          {
+            const nextPolicies = advanceNationPolicies(
               world,
               nationRelations,
               nextStockpiles,
               currentPolicies,
               currentMonth,
               nextMonth,
-            ),
-          );
+            );
+            setDiplomacy((currentDiplomacy) => {
+              const execution = executeDiplomacyPoliciesWithEvents(
+                currentDiplomacy,
+                nextPolicies,
+                world,
+                nextMonth,
+              );
+              const evaluation = evaluateDiplomaticProposalsWithEvents(
+                execution.diplomacy,
+                world,
+                nationRelations,
+                nextMonth,
+              );
+              const newEvents = [...execution.events, ...evaluation.events];
+
+              if (newEvents.length > 0) {
+                setEvents((currentEvents) => [...currentEvents, ...newEvents].slice(-240));
+              }
+
+              return evaluation.diplomacy;
+            });
+            return nextPolicies;
+          });
           return nextStockpiles;
         });
 
@@ -104,26 +163,61 @@ export default function App() {
     if (provinceId) {
       setSelectedProvinceId(provinceId);
       setSelectedCityId(undefined);
+      setCityReturnNationId(undefined);
       setSelectedNationId(undefined);
     }
   }, []);
-  const handleSelectCity = useCallback((cityId: string) => {
+  const handleSelectCity = useCallback((cityId: string, returnNationId?: string) => {
     const city = world.cityById.get(cityId);
     if (!city) {
       return;
     }
 
     setSelectedCityId(cityId);
+    setCityReturnNationId(returnNationId);
     setSelectedNationId(undefined);
     setSelectedProvinceId(city.provinceId);
   }, []);
   const handleSelectNation = useCallback((nationId: string) => {
     setSelectedCityId(undefined);
+    setCityReturnNationId(undefined);
     setSelectedNationId(nationId);
   }, []);
+  const handleBackFromCity = useCallback(() => {
+    setSelectedCityId(undefined);
+    if (cityReturnNationId) {
+      setSelectedNationId(cityReturnNationId);
+      setCityReturnNationId(undefined);
+      return;
+    }
+
+    setSelectedNationId(undefined);
+  }, [cityReturnNationId]);
 
   return (
-    <main className={isPanelOpen ? "appShell" : "appShell panelCollapsed"}>
+    <main className={buildAppShellClassName(isPanelOpen, isEventPanelOpen)}>
+      <aside className="eventPanel" aria-label="Event log">
+        <button
+          aria-label={isEventPanelOpen ? "Collapse event log" : "Expand event log"}
+          className="eventPanelToggle"
+          onClick={() => setIsEventPanelOpen((open) => !open)}
+          title={isEventPanelOpen ? "Collapse event log" : "Expand event log"}
+          type="button"
+        >
+          {isEventPanelOpen ? "<" : ">"}
+        </button>
+        {isEventPanelOpen && (
+          <EventLogPanel
+            eventLogMode={eventLogMode}
+            eventNationId={eventNationId}
+            nations={world.nations}
+            nationEvents={nationEvents}
+            onSelectMode={setEventLogMode}
+            onSelectNation={setEventNationId}
+            overviewEvents={overviewEvents}
+          />
+        )}
+      </aside>
       <section className="mapArea" aria-label="World map">
         <WorldMap
           world={world}
@@ -149,7 +243,7 @@ export default function App() {
             {selectedCityStats ? (
               <CityDetailPanel
                 stats={selectedCityStats}
-                onBack={() => setSelectedCityId(undefined)}
+                onBack={handleBackFromCity}
               />
             ) : selectedNationStats ? (
               <NationDetailPanel
@@ -308,6 +402,94 @@ export default function App() {
 type NationStats = NonNullable<ReturnType<typeof buildNationStats>>;
 type CityStats = NonNullable<ReturnType<typeof buildCityStats>>;
 
+function EventLogPanel({
+  eventLogMode,
+  eventNationId,
+  nations,
+  nationEvents,
+  onSelectMode,
+  onSelectNation,
+  overviewEvents,
+}: {
+  eventLogMode: "nation" | "overview";
+  eventNationId: string;
+  nations: Nation[];
+  nationEvents: GameEvent[];
+  onSelectMode: (mode: "nation" | "overview") => void;
+  onSelectNation: (nationId: string) => void;
+  overviewEvents: GameEvent[];
+}) {
+  return (
+    <div className="eventPanelContent">
+      <header>
+        <p className="eyebrow">World History</p>
+        <h1>Event Log</h1>
+      </header>
+      <div className="segmentedControl eventModeControl" role="group" aria-label="Event log mode">
+        <button
+          className={eventLogMode === "overview" ? "active" : ""}
+          onClick={() => onSelectMode("overview")}
+          type="button"
+        >
+          Overview
+        </button>
+        <button
+          className={eventLogMode === "nation" ? "active" : ""}
+          onClick={() => onSelectMode("nation")}
+          type="button"
+        >
+          Nation
+        </button>
+      </div>
+      {eventLogMode === "nation" && (
+        <section className="eventNationSelector">
+          <h2>Nation</h2>
+          <div className="eventNationButtons">
+            {nations.map((nation) => (
+              <button
+                className={eventNationId === nation.id ? "active" : ""}
+                key={nation.id}
+                onClick={() => onSelectNation(nation.id)}
+                type="button"
+              >
+                <span style={{ backgroundColor: nation.color }} />
+                {nation.name}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      <section className="eventListSection">
+        <div className="sectionTitleRow">
+          <h2>{eventLogMode === "overview" ? "Recent Major Events" : "Last 2 Years"}</h2>
+          <span>{eventLogMode === "overview" ? overviewEvents.length : nationEvents.length}</span>
+        </div>
+        <EventRows events={eventLogMode === "overview" ? overviewEvents : nationEvents} />
+      </section>
+    </div>
+  );
+}
+
+function EventRows({ events }: { events: GameEvent[] }) {
+  if (events.length === 0) {
+    return <p className="emptyState">No major events yet</p>;
+  }
+
+  return (
+    <div className="eventRows">
+      {events.map((event) => (
+        <article className={`eventRow ${event.kind}`} key={event.id}>
+          <div>
+            <strong>{event.title}</strong>
+            <span>{formatWorldTime(event.month)}</span>
+          </div>
+          <p>{event.description}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function CityDetailPanel({
   onBack,
   stats,
@@ -370,7 +552,7 @@ function NationDetailPanel({
   stats,
 }: {
   onBack: () => void;
-  onSelectCity: (cityId: string) => void;
+  onSelectCity: (cityId: string, returnNationId?: string) => void;
   stats: NationStats;
 }) {
   return (
@@ -425,9 +607,13 @@ function NationDetailPanel({
         </div>
       </div>
       <PolicyPanel monthsUntilReview={stats.monthsUntilPolicyReview} policy={stats.policy} />
+      <DiplomacyStatusPanel diplomacy={stats.diplomacy} perspectiveNationId={stats.nation.id} />
       <section className="resourceSummary">
         <h2>Major Cities</h2>
-        <CityRows cities={stats.majorCities} onSelectCity={onSelectCity} />
+        <CityRows
+          cities={stats.majorCities}
+          onSelectCity={(cityId) => onSelectCity(cityId, stats.nation.id)}
+        />
       </section>
       <section className="resourceSummary">
         <h2>Relations</h2>
@@ -447,6 +633,123 @@ function NationDetailPanel({
       </section>
     </section>
   );
+}
+
+function DiplomacyStatusPanel({
+  diplomacy,
+  perspectiveNationId,
+}: {
+  diplomacy: NationDiplomacySummary;
+  perspectiveNationId: string;
+}) {
+  const totalActive =
+    diplomacy.wars.length +
+    diplomacy.alliances.length +
+    diplomacy.vassalContracts.length +
+    (diplomacy.overlordContract ? 1 : 0) +
+    diplomacy.truces.length +
+    diplomacy.proposals.length;
+
+  return (
+    <section className="diplomacyStatusPanel">
+      <div className="sectionTitleRow">
+        <h2>Diplomacy Status</h2>
+        <span>{totalActive} active</span>
+      </div>
+      {totalActive === 0 ? (
+        <p className="emptyState">No wars, treaties, vassals, truces, or proposals</p>
+      ) : (
+        <div className="diplomacyStatusRows">
+          {diplomacy.wars.map((war) => {
+            const otherId = getOtherTreatyNationId(
+              war.attackerNationId,
+              war.defenderNationId,
+              perspectiveNationId,
+            );
+            return (
+              <p key={war.id}>
+                <span>
+                  <strong>War</strong>
+                  <em>Started {formatWorldTime(war.startedAtMonth)}</em>
+                </span>
+                <b>{world.nationById.get(otherId)?.name ?? "Unknown"}</b>
+              </p>
+            );
+          })}
+          {diplomacy.alliances.map((alliance) => {
+            const otherId = getOtherTreatyNationId(
+              alliance.nationAId,
+              alliance.nationBId,
+              perspectiveNationId,
+            );
+            return (
+              <p key={alliance.id}>
+                <span>
+                  <strong>Alliance</strong>
+                  <em>{alliance.mutualDefense ? "Mutual defense" : "Limited treaty"}</em>
+                </span>
+                <b>{world.nationById.get(otherId)?.name ?? "Unknown"}</b>
+              </p>
+            );
+          })}
+          {diplomacy.overlordContract && (
+            <p key={diplomacy.overlordContract.id}>
+              <span>
+                <strong>Vassal Of</strong>
+                <em>{formatTribute(diplomacy.overlordContract)} tribute</em>
+              </span>
+              <b>{world.nationById.get(diplomacy.overlordContract.overlordNationId)?.name ?? "Unknown"}</b>
+            </p>
+          )}
+          {diplomacy.vassalContracts.map((contract) => (
+            <p key={contract.id}>
+              <span>
+                <strong>Vassal</strong>
+                <em>{formatTribute(contract)} tribute</em>
+              </span>
+              <b>{world.nationById.get(contract.vassalNationId)?.name ?? "Unknown"}</b>
+            </p>
+          ))}
+          {diplomacy.truces.map((truce) => {
+            const otherId = getOtherTreatyNationId(
+              truce.nationAId,
+              truce.nationBId,
+              perspectiveNationId,
+            );
+            return (
+              <p key={truce.id}>
+                <span>
+                  <strong>Truce</strong>
+                  <em>Expires {formatWorldTime(truce.expiresAtMonth)}</em>
+                </span>
+                <b>{world.nationById.get(otherId)?.name ?? "Unknown"}</b>
+              </p>
+            );
+          })}
+          {diplomacy.proposals.map((proposal) => (
+            <p key={proposal.id}>
+              <span>
+                <strong>{formatProposalType(proposal.type)}</strong>
+                <em>
+                  {proposal.fromNationId === perspectiveNationId ? "Sent" : "Received"} / expires{" "}
+                  {formatWorldTime(proposal.expiresAtMonth)}
+                </em>
+              </span>
+              <b>{world.nationById.get(
+                proposal.fromNationId === perspectiveNationId ? proposal.toNationId : proposal.fromNationId,
+              )?.name ?? "Unknown"}</b>
+            </p>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatTribute(contract: { goldTributeRate: number; resourceTributeRate: number }) {
+  return `${Math.round(contract.goldTributeRate * 100)}% gold / ${Math.round(
+    contract.resourceTributeRate * 100,
+  )}% resources`;
 }
 
 function PolicyPanel({
@@ -710,6 +1013,7 @@ function buildNationStats(
   stockpile: NationStockpile | undefined,
   policy: NationPolicyState | undefined,
   relations: NationRelations,
+  diplomacy: Parameters<typeof getNationDiplomacySummary>[0],
   elapsedMonths: number,
 ) {
   if (!nationId) {
@@ -751,6 +1055,7 @@ function buildNationStats(
     cityCount: cities.length,
     cityEconomy,
     currentResources: stockpile?.resources ?? {},
+    diplomacy: getNationDiplomacySummary(diplomacy, nationId),
     majorCities: cities.slice(0, 6),
     monthlyIncome,
     monthlyOutput,
