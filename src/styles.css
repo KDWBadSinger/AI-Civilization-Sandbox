@@ -671,7 +671,8 @@ h2 {
 
 .diplomacyStatusPanel,
 .policyPanel,
-.spyMissionSection {
+.spyMissionSection,
+.spyNetworkPanel {
   min-width: 0;
 }
 
@@ -684,7 +685,8 @@ h2 {
 .diplomacyStatusRows,
 .relationRows,
 .policyRows,
-.spyMissionRows {
+.spyMissionRows,
+.spyNetworkRows {
   display: grid;
   gap: 8px;
 }
@@ -695,7 +697,8 @@ h2 {
 .diplomacyStatusRows p,
 .relationRows p,
 .policyRows p,
-.spyMissionRows p {
+.spyMissionRows p,
+.spyNetworkRows p {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -723,7 +726,8 @@ h2 {
 .diplomacyStatusRows em,
 .relationRows em,
 .policyRows em,
-.spyMissionRows em {
+.spyMissionRows em,
+.spyNetworkRows em {
   color: #9fb7b1;
 }
 
@@ -732,7 +736,8 @@ h2 {
 .diplomacyStatusRows strong,
 .relationRows strong,
 .policyRows strong,
-.spyMissionRows strong {
+.spyMissionRows strong,
+.spyNetworkRows strong {
   color: #eef3ec;
 }
 
@@ -741,7 +746,8 @@ h2 {
 .diplomacyStatusRows p,
 .relationRows p,
 .policyRows p,
-.spyMissionRows p {
+.spyMissionRows p,
+.spyNetworkRows p {
   align-items: center;
 }
 
@@ -749,7 +755,8 @@ h2 {
 .diplomacyStatusRows span,
 .relationRows span,
 .policyRows span,
-.spyMissionRows span {
+.spyMissionRows span,
+.spyNetworkRows span {
   display: grid;
   min-width: 0;
   gap: 3px;
@@ -759,7 +766,8 @@ h2 {
 .diplomacyStatusRows em,
 .relationRows em,
 .policyRows em,
-.spyMissionRows em {
+.spyMissionRows em,
+.spyNetworkRows em {
   overflow: hidden;
   font-size: 11px;
   font-style: normal;
@@ -807,7 +815,8 @@ h2 {
 }
 
 .policyRows b,
-.spyMissionRows b {
+.spyMissionRows b,
+.spyNetworkRows b {
   display: grid;
   flex: 0 0 96px;
   gap: 3px;
@@ -817,11 +826,23 @@ h2 {
 }
 
 .policyRows small,
-.spyMissionRows small {
+.spyMissionRows small,
+.spyNetworkRows small {
   color: #9fb7b1;
   font-size: 10px;
   font-weight: 700;
   line-height: 1.25;
+}
+
+.spyIntelTitle {
+  margin-top: 14px;
+}
+
+.spyNetworkRows b {
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .relationRows .attitudeBadge {

@@ -301,11 +301,13 @@ function decideSpyMissions(profile: ReturnType<typeof buildNationPolicyProfile>)
     });
   };
 
-  if (profile.worstRelation && profile.worstRelation.attitude <= -35) {
+  if (profile.worstRelation && profile.worstRelation.attitude < 25) {
     addMission({
       policy: "gather_intelligence",
       label: spyMissionLabels.gather_intelligence,
-      rationale: "The most hostile nation should be watched first.",
+      rationale: profile.worstRelation.attitude <= -35
+        ? "The most hostile nation should be watched first."
+        : "The least trusted neighbor should be watched before policy changes.",
       targetNationId: otherNationId(profile.worstRelation, profile.nationId),
     });
   }

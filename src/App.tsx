@@ -36,6 +36,14 @@ import {
   settleNationStockpiles,
   type NationStockpile,
 } from "./world/settlement";
+import {
+  advanceSpyNetwork,
+  buildInitialSpyNetworkWithEvents,
+  formatSpyMissionPolicy,
+  getNationSpySummary,
+  type NationSpySummary,
+  type SpyNetwork,
+} from "./world/spies";
 import type { City, Nation, Resource, Terrain, Tile } from "./world/types";
 
 const world = buildDemoWorld();
@@ -46,6 +54,16 @@ const mapModes: { id: MapMode; label: string }[] = [
 ];
 const speedOptions = [1, 2, 5] as const;
 type SimulationSpeed = (typeof speedOptions)[number];
+
+type SimulationState = {
+  diplomacy: Parameters<typeof getNationDiplomacySummary>[0];
+  elapsedMonths: number;
+  events: GameEvent[];
+  nationPolicies: Record<string, NationPolicyState>;
+  nationRelations: NationRelations;
+  nationStockpiles: Record<string, NationStockpile>;
+  spies: SpyNetwork;
+};
 
 function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean) {
   return [
@@ -61,29 +79,40 @@ export default function App() {
   const [mapMode, setMapMode] = useState<MapMode>("political");
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
-  const [elapsedMonths, setElapsedMonths] = useState(0);
-  const [events, setEvents] = useState<GameEvent[]>([]);
   const [eventLogMode, setEventLogMode] = useState<"nation" | "overview">("overview");
   const [eventNationId, setEventNationId] = useState<string>(world.nations[0]?.id ?? "");
   const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
-  const [diplomacy, setDiplomacy] = useState(() => buildInitialDiplomacyState(world));
-  const [nationRelations] = useState(() => buildInitialNationRelations(world));
-  const [nationStockpiles, setNationStockpiles] = useState(() => buildInitialNationStockpiles(world));
-  const [nationPolicies, setNationPolicies] = useState(() =>
-    buildInitialNationPolicies(world, nationRelations, buildInitialNationStockpiles(world), 0),
-  );
+  const [simulation, setSimulation] = useState<SimulationState>(() => {
+    const nationRelations = buildInitialNationRelations(world);
+    const nationStockpiles = buildInitialNationStockpiles(world);
+    const nationPolicies = buildInitialNationPolicies(world, nationRelations, nationStockpiles, 0);
+    const initialSpies = buildInitialSpyNetworkWithEvents(world, nationPolicies);
+
+    return {
+      diplomacy: buildInitialDiplomacyState(world),
+      elapsedMonths: 0,
+      events: initialSpies.events,
+      nationPolicies,
+      nationRelations,
+      nationStockpiles,
+      spies: initialSpies.spyNetwork,
+    };
+  });
   const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
   const [cityReturnNationId, setCityReturnNationId] = useState<string | undefined>();
   const [selectedNationId, setSelectedNationId] = useState<string | undefined>();
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | undefined>(
     world.provinces[0]?.id,
   );
-  const worldTime = useMemo(() => formatWorldTime(elapsedMonths), [elapsedMonths]);
-  const overviewEvents = useMemo(() => sortEventsNewestFirst(events).slice(0, 80), [events]);
+  const worldTime = useMemo(
+    () => formatWorldTime(simulation.elapsedMonths),
+    [simulation.elapsedMonths],
+  );
+  const overviewEvents = useMemo(() => sortEventsNewestFirst(simulation.events).slice(0, 80), [simulation.events]);
   const nationEvents = useMemo(
-    () => filterEventsForNation(events, eventNationId, Math.max(0, elapsedMonths - 24)),
-    [elapsedMonths, eventNationId, events],
+    () => filterEventsForNation(simulation.events, eventNationId, Math.max(0, simulation.elapsedMonths - 24)),
+    [eventNationId, simulation.elapsedMonths, simulation.events],
   );
   const selectedProvinceStats = useMemo(
     () => buildProvinceStats(selectedProvinceId),
@@ -92,13 +121,14 @@ export default function App() {
   const selectedNationStats = useMemo(
     () => buildNationStats(
       selectedNationId,
-      nationStockpiles[selectedNationId ?? ""],
-      nationPolicies[selectedNationId ?? ""],
-      nationRelations,
-      diplomacy,
-      elapsedMonths,
+      simulation.nationStockpiles[selectedNationId ?? ""],
+      simulation.nationPolicies[selectedNationId ?? ""],
+      simulation.nationRelations,
+      simulation.diplomacy,
+      simulation.spies,
+      simulation.elapsedMonths,
     ),
-    [diplomacy, elapsedMonths, nationPolicies, nationRelations, nationStockpiles, selectedNationId],
+    [selectedNationId, simulation],
   );
   const selectedCityStats = useMemo(
     () => buildCityStats(selectedCityId),
@@ -111,53 +141,57 @@ export default function App() {
     }
 
     const timer = window.setInterval(() => {
-      setElapsedMonths((currentMonth) => {
+      setSimulation((currentSimulation) => {
+        const currentMonth = currentSimulation.elapsedMonths;
         const nextMonth = currentMonth + speed;
+        const nationStockpiles = settleNationStockpiles(
+          world,
+          currentSimulation.nationStockpiles,
+          speed,
+        );
+        const nationPolicies = advanceNationPolicies(
+          world,
+          currentSimulation.nationRelations,
+          nationStockpiles,
+          currentSimulation.nationPolicies,
+          currentMonth,
+          nextMonth,
+        );
+        const spyUpdate = advanceSpyNetwork(
+          currentSimulation.spies,
+          nationPolicies,
+          currentSimulation.nationRelations,
+          world,
+          nextMonth,
+        );
+        const execution = executeDiplomacyPoliciesWithEvents(
+          currentSimulation.diplomacy,
+          nationPolicies,
+          world,
+          nextMonth,
+        );
+        const evaluation = evaluateDiplomaticProposalsWithEvents(
+          execution.diplomacy,
+          world,
+          spyUpdate.relations,
+          nextMonth,
+        );
+        const newEvents = [...spyUpdate.events, ...execution.events, ...evaluation.events];
 
-        setNationStockpiles((currentStockpiles) => {
-          const nextStockpiles = settleNationStockpiles(world, currentStockpiles, speed);
-          setNationPolicies((currentPolicies) =>
-          {
-            const nextPolicies = advanceNationPolicies(
-              world,
-              nationRelations,
-              nextStockpiles,
-              currentPolicies,
-              currentMonth,
-              nextMonth,
-            );
-            setDiplomacy((currentDiplomacy) => {
-              const execution = executeDiplomacyPoliciesWithEvents(
-                currentDiplomacy,
-                nextPolicies,
-                world,
-                nextMonth,
-              );
-              const evaluation = evaluateDiplomaticProposalsWithEvents(
-                execution.diplomacy,
-                world,
-                nationRelations,
-                nextMonth,
-              );
-              const newEvents = [...execution.events, ...evaluation.events];
-
-              if (newEvents.length > 0) {
-                setEvents((currentEvents) => [...currentEvents, ...newEvents].slice(-240));
-              }
-
-              return evaluation.diplomacy;
-            });
-            return nextPolicies;
-          });
-          return nextStockpiles;
-        });
-
-        return nextMonth;
+        return {
+          diplomacy: evaluation.diplomacy,
+          elapsedMonths: nextMonth,
+          events: [...currentSimulation.events, ...newEvents].slice(-240),
+          nationPolicies,
+          nationRelations: spyUpdate.relations,
+          nationStockpiles,
+          spies: spyUpdate.spyNetwork,
+        };
       });
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isRunning, nationRelations, speed]);
+  }, [isRunning, speed]);
 
   const handleSelectProvince = useCallback((provinceId: string | undefined) => {
     if (provinceId) {
@@ -605,8 +639,13 @@ function NationDetailPanel({
           <span>Resource Sites</span>
           <strong>{stats.resourceSiteCount}</strong>
         </div>
+        <div>
+          <span>Deployed Spies</span>
+          <strong>{stats.spies.deployed.length}/3</strong>
+        </div>
       </div>
       <PolicyPanel monthsUntilReview={stats.monthsUntilPolicyReview} policy={stats.policy} />
+      <SpyNetworkPanel spies={stats.spies} currentMonth={stats.currentMonth} />
       <DiplomacyStatusPanel diplomacy={stats.diplomacy} perspectiveNationId={stats.nation.id} />
       <section className="resourceSummary">
         <h2>Major Cities</h2>
@@ -781,6 +820,81 @@ function PolicyPanel({
         </div>
         <SpyMissionRows missions={policy.spyMissions} />
       </section>
+    </section>
+  );
+}
+
+function SpyNetworkPanel({
+  currentMonth,
+  spies,
+}: {
+  currentMonth: number;
+  spies: NationSpySummary;
+}) {
+  return (
+    <section className="spyNetworkPanel">
+      <div className="sectionTitleRow">
+        <h2>Spy Network</h2>
+        <span>{spies.deployed.length}/3 deployed</span>
+      </div>
+      {spies.deployed.length === 0 ? (
+        <p className="emptyState">No spies currently deployed</p>
+      ) : (
+        <div className="spyNetworkRows">
+          {spies.deployed.map((operation) => {
+            const target = world.nationById.get(operation.targetNationId)?.name ?? "Unknown nation";
+            const secondaryTarget = operation.secondaryTargetNationId
+              ? world.nationById.get(operation.secondaryTargetNationId)?.name
+              : undefined;
+            const monthsUntilActive = Math.max(0, operation.activatesAtMonth - currentMonth);
+
+            return (
+              <p key={operation.id}>
+                <span>
+                  <strong>{formatSpyMissionPolicy(operation.policy)}</strong>
+                  <em>
+                    {target}{secondaryTarget ? ` vs ${secondaryTarget}` : ""}
+                  </em>
+                </span>
+                <b>
+                  {operation.status === "deploying"
+                    ? `Active in ${monthsUntilActive} mo`
+                    : "Active"}
+                  <small>Review {formatWorldTime(operation.expiresAtMonth)}</small>
+                </b>
+              </p>
+            );
+          })}
+        </div>
+      )}
+      <div className="sectionTitleRow spyIntelTitle">
+        <h2>Active Intelligence</h2>
+        <span>{spies.intelligenceReports.length}</span>
+      </div>
+      {spies.intelligenceReports.length === 0 ? (
+        <p className="emptyState">No active intelligence reports</p>
+      ) : (
+        <div className="spyNetworkRows">
+          {spies.intelligenceReports.map((report) => (
+            <p key={report.id}>
+              <span>
+                <strong>{world.nationById.get(report.targetNationId)?.name ?? "Unknown nation"}</strong>
+                <em>
+                  Army {formatInteger(report.army)} / Gold {formatInteger(report.monthlyGold)}/mo
+                </em>
+              </span>
+              <b>
+                {formatIntelResources(report.monthlyResources)}
+                <small>
+                  {report.expiresAtMonth
+                    ? `Expires ${formatWorldTime(report.expiresAtMonth)}`
+                    : "Current report"}
+                </small>
+              </b>
+            </p>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -982,6 +1096,14 @@ function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function formatIntelResources(resources: ResourceTotals) {
+  const output = Object.entries(resources)
+    .filter(([, amount]) => amount > 0)
+    .map(([resource, amount]) => `${formatResourceName(resource as Resource)} ${amount}`)
+    .join(", ");
+  return output || "No resources";
+}
+
 function buildCityStats(cityId: string | undefined) {
   if (!cityId) {
     return undefined;
@@ -1014,6 +1136,7 @@ function buildNationStats(
   policy: NationPolicyState | undefined,
   relations: NationRelations,
   diplomacy: Parameters<typeof getNationDiplomacySummary>[0],
+  spies: SpyNetwork,
   elapsedMonths: number,
 ) {
   if (!nationId) {
@@ -1067,6 +1190,8 @@ function buildNationStats(
     resourceSiteCount: Object.values(resourceSiteCounts).reduce((sum, count) => sum + count, 0),
     resourceSiteCounts,
     stockpile: stockpile ?? { gold: 0, resources: {} },
+    spies: getNationSpySummary(spies, nationId, elapsedMonths),
+    currentMonth: elapsedMonths,
   };
 }
 

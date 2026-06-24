@@ -6,7 +6,12 @@ export type GameEventKind =
   | "proposal_rejected"
   | "truce_signed"
   | "war_declared"
-  | "vassalage_signed";
+  | "vassalage_signed"
+  | "spy_dispatched"
+  | "intelligence_acquired"
+  | "relations_improved"
+  | "relations_damaged"
+  | "relations_sowed_discord";
 
 export type GameEvent = {
   id: string;

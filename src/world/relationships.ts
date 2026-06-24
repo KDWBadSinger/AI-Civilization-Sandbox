@@ -84,6 +84,29 @@ export function getAttitudeLabel(attitude: number) {
   return "Trusted";
 }
 
+export function adjustNationRelation(
+  relations: NationRelations,
+  nationAId: string,
+  nationBId: string,
+  change: number,
+  currentMonth: number,
+): NationRelations {
+  const key = relationKey(nationAId, nationBId);
+  const current = relations[key];
+  if (!current) {
+    return relations;
+  }
+
+  return {
+    ...relations,
+    [key]: {
+      ...current,
+      attitude: clamp(current.attitude + change, -100, 100),
+      lastChangedMonth: currentMonth,
+    },
+  };
+}
+
 function nationPairs(nations: Nation[]) {
   const pairs: Array<[Nation, Nation]> = [];
 

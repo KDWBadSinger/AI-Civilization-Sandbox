@@ -42,6 +42,11 @@ Current map prototype:
 - Store expansion, economy, and diplomacy policy directions per nation and reassess them every six simulated months.
 - Assign up to three parallel spy mission intents per nation.
 - Inspect each nation's current policies and spy mission intents in the nation detail panel.
+- Maintain up to three persistent spy entities per nation, with dispatch, activation, reassignment, and expiry records.
+- Execute intelligence, relation improvement, relation damage, and discord missions from AI spy intents.
+- Activate intelligence reports after six simulated months and retain superseded reports for four more months.
+- Display deployed spies, task timing, and active enemy army/resource intelligence in the nation detail panel.
+- Record spy dispatches, intelligence gains, and covert relation effects in the world event log.
 - Return from a city detail back to the nation detail panel when the city was opened from that nation.
 - Collapse or expand the right-side information panel.
 - Hover resource nodes to inspect monthly output.
