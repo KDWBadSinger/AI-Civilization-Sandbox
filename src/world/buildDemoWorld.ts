@@ -1,4 +1,4 @@
-import type { MapEdge, Nation, Province, Resource, Terrain, Tile, World } from "./types";
+import type { City, MapEdge, Nation, Province, Resource, Terrain, Tile, World } from "./types";
 
 const width = 96;
 const height = 64;
@@ -69,6 +69,44 @@ const nameRoots = [
   "forge",
 ];
 
+const cityPrefixes = [
+  "Aster",
+  "Nova",
+  "River",
+  "Iron",
+  "Crown",
+  "Harbor",
+  "Stone",
+  "Bright",
+  "Cloud",
+  "Ember",
+  "Lumen",
+  "Cobalt",
+  "Verdant",
+  "Auric",
+  "Horizon",
+  "Meridian",
+];
+
+const cityRoots = [
+  "hold",
+  "gate",
+  "port",
+  "spire",
+  "haven",
+  "cross",
+  "fall",
+  "watch",
+  "ford",
+  "market",
+  "garden",
+  "forge",
+  "rest",
+  "ward",
+  "point",
+  "bridge",
+];
+
 type ProvinceSeed = {
   id: string;
   x: number;
@@ -88,6 +126,8 @@ export function buildDemoWorld(seed = defaultSeed): World {
   const provinceById = new Map(provinces.map((province) => [province.id, province]));
   const nationById = new Map(nations.map((nation) => [nation.id, nation]));
   const { provinceEdges, nationEdges } = buildBorders(tiles, provinceById);
+  const cities = buildCities(tiles, provinces, nations, seedHash);
+  const cityById = new Map(cities.map((city) => [city.id, city]));
 
   return {
     seed,
@@ -96,8 +136,10 @@ export function buildDemoWorld(seed = defaultSeed): World {
     tiles,
     nations,
     provinces,
+    cities,
     provinceById,
     nationById,
+    cityById,
     provinceEdges,
     nationEdges,
   };
@@ -272,6 +314,211 @@ function assignNationsToProvinces(
 
     province.nationId = nationTemplates[capitals.indexOf(bestCapital)].id;
   }
+}
+
+function buildCities(
+  tiles: Tile[],
+  provinces: Province[],
+  nations: Nation[],
+  seedHash: number,
+): City[] {
+  const tilesByProvince = new Map<string, Tile[]>();
+  const provincesByNation = new Map<string, Province[]>();
+  const cities: City[] = [];
+  let cityIndex = 0;
+
+  for (const tile of tiles) {
+    if (!tile.provinceId || !isLand(tile)) {
+      continue;
+    }
+
+    const provinceTiles = tilesByProvince.get(tile.provinceId) ?? [];
+    provinceTiles.push(tile);
+    tilesByProvince.set(tile.provinceId, provinceTiles);
+  }
+
+  for (const province of provinces) {
+    const nationProvinces = provincesByNation.get(province.nationId) ?? [];
+    nationProvinces.push(province);
+    provincesByNation.set(province.nationId, nationProvinces);
+  }
+
+  for (const nation of nations) {
+    const ownedProvinces = provincesByNation.get(nation.id) ?? [];
+    if (ownedProvinces.length === 0) {
+      continue;
+    }
+
+    const ownedTiles = ownedProvinces.flatMap((province) => tilesByProvince.get(province.id) ?? []);
+    const resourceSiteCount = ownedTiles.filter((tile) => tile.resource).length;
+    const targetCityCount = clampInt(
+      1 + Math.floor(ownedProvinces.length / 6) + Math.floor(resourceSiteCount / 28),
+      1,
+      9,
+    );
+    const capitalProvince =
+      ownedProvinces.find((province) => province.id === nation.capitalProvinceId) ??
+      ownedProvinces[0];
+    const capitalTile = chooseCityTile(
+      capitalProvince,
+      tilesByProvince.get(capitalProvince.id) ?? [],
+      cities,
+      seedHash,
+      cityIndex,
+    );
+    const capitalCity = createCity(nation, capitalProvince, capitalTile, cityIndex, true, seedHash);
+
+    cities.push(capitalCity);
+    nation.capitalCityId = capitalCity.id;
+    cityIndex += 1;
+
+    const remainingProvinces = ownedProvinces
+      .filter((province) => province.id !== capitalProvince.id)
+      .sort((a, b) => b.tileCount - a.tileCount);
+
+    while (cities.filter((city) => city.nationId === nation.id).length < targetCityCount) {
+      if (remainingProvinces.length === 0) {
+        break;
+      }
+
+      const province = chooseCityProvince(
+        remainingProvinces,
+        tilesByProvince,
+        cities,
+        seedHash,
+        cityIndex,
+      );
+      const tile = chooseCityTile(
+        province,
+        tilesByProvince.get(province.id) ?? [],
+        cities,
+        seedHash,
+        cityIndex,
+      );
+
+      cities.push(createCity(nation, province, tile, cityIndex, false, seedHash));
+      cityIndex += 1;
+      remainingProvinces.splice(remainingProvinces.indexOf(province), 1);
+    }
+  }
+
+  return cities;
+}
+
+function createCity(
+  nation: Nation,
+  province: Province,
+  tile: Tile,
+  index: number,
+  isCapital: boolean,
+  seedHash: number,
+): City {
+  const terrainLevelBonus = tile.terrain === "plain" || tile.terrain === "coast" ? 1 : 0;
+  const resourceLevelBonus = tile.resource ? 1 : 0;
+  const level = clampInt((isCapital ? 3 : 1) + terrainLevelBonus + resourceLevelBonus, 1, 5);
+  const populationBase = isCapital ? 92000 : 28000;
+  const populationNoise = 0.78 + randomAt(tile.x, tile.y, seedHash + 5200) * 0.55;
+
+  return {
+    id: `city-${index}`,
+    name: cityName(index),
+    nationId: nation.id,
+    provinceId: province.id,
+    x: tile.x,
+    y: tile.y,
+    isCapital,
+    population: Math.round(populationBase * level * populationNoise),
+    level,
+  };
+}
+
+function chooseCityProvince(
+  provinces: Province[],
+  tilesByProvince: Map<string, Tile[]>,
+  existingCities: City[],
+  seedHash: number,
+  cityIndex: number,
+) {
+  let bestProvince = provinces[0];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const province of provinces) {
+    const provinceTiles = tilesByProvince.get(province.id) ?? [];
+    const resourceSites = provinceTiles.filter((tile) => tile.resource).length;
+    const nearestCity = Math.min(
+      18,
+      ...existingCities.map((city) => distance(city.x, city.y, province.centerX, province.centerY)),
+    );
+    const noise = randomAt(
+      Math.round(province.centerX * 10),
+      Math.round(province.centerY * 10),
+      seedHash + 5000 + cityIndex,
+    );
+    const score = province.tileCount * 0.54 + resourceSites * 9 + nearestCity * 2.4 + noise * 8;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestProvince = province;
+    }
+  }
+
+  return bestProvince;
+}
+
+function chooseCityTile(
+  province: Province,
+  provinceTiles: Tile[],
+  existingCities: City[],
+  seedHash: number,
+  cityIndex: number,
+) {
+  let bestTile = provinceTiles[0];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const tile of provinceTiles) {
+    const nearestCity = Math.min(
+      10,
+      ...existingCities.map((city) => distance(city.x, city.y, tile.x, tile.y)),
+    );
+    const crowdPenalty = nearestCity < 5 ? (5 - nearestCity) * 3.8 : 0;
+    const centerPenalty = distance(tile.x, tile.y, province.centerX, province.centerY) * 0.42;
+    const resourceBonus = tile.resource ? 5.8 : 0;
+    const noise = randomAt(tile.x, tile.y, seedHash + 5100 + cityIndex) * 4.2;
+    const score =
+      cityTerrainScore(tile.terrain) + resourceBonus + nearestCity * 0.55 - centerPenalty - crowdPenalty + noise;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTile = tile;
+    }
+  }
+
+  return bestTile;
+}
+
+function cityTerrainScore(terrain: Terrain) {
+  switch (terrain) {
+    case "plain":
+      return 18;
+    case "coast":
+      return 16;
+    case "forest":
+      return 12;
+    case "hill":
+      return 9;
+    case "desert":
+      return 5;
+    case "mountain":
+      return 2;
+    case "ocean":
+      return -100;
+  }
+}
+
+function cityName(index: number) {
+  const prefix = cityPrefixes[index % cityPrefixes.length];
+  const root = cityRoots[Math.floor(index / cityPrefixes.length) % cityRoots.length];
+  return `${prefix}${root}`;
 }
 
 function buildBorders(
@@ -553,4 +800,8 @@ function lerp(a: number, b: number, t: number) {
 
 function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
+}
+
+function clampInt(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
