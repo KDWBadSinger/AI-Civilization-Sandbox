@@ -8,6 +8,7 @@ export type Nation = {
   color: string;
   numericColor: number;
   capitalProvinceId: string;
+  capitalCityId?: string;
 };
 
 export type Province = {
@@ -30,6 +31,18 @@ export type Tile = {
   resource?: Resource;
 };
 
+export type City = {
+  id: string;
+  name: string;
+  nationId: string;
+  provinceId: string;
+  x: number;
+  y: number;
+  isCapital: boolean;
+  population: number;
+  level: number;
+};
+
 export type MapEdge = {
   x1: number;
   y1: number;
@@ -45,8 +58,10 @@ export type World = {
   tiles: Tile[];
   nations: Nation[];
   provinces: Province[];
+  cities: City[];
   provinceById: Map<string, Province>;
   nationById: Map<string, Nation>;
+  cityById: Map<string, City>;
   provinceEdges: MapEdge[];
   nationEdges: MapEdge[];
 };

@@ -8,7 +8,9 @@ export type MapMode = "political" | "terrain" | "resources";
 type WorldMapProps = {
   world: World;
   mapMode: MapMode;
+  selectedCityId?: string;
   selectedProvinceId?: string;
+  onSelectCity: (cityId: string) => void;
   onSelectProvince: (provinceId: string | undefined) => void;
 };
 
@@ -40,7 +42,14 @@ const resourceColors = {
   oil: 0x18191d,
 };
 
-export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince }: WorldMapProps) {
+export function WorldMap({
+  world,
+  mapMode,
+  onSelectCity,
+  onSelectProvince,
+  selectedCityId,
+  selectedProvinceId,
+}: WorldMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const selectedLayerRef = useRef<Graphics | null>(null);
   const tileByCoord = useMemo(
@@ -86,6 +95,7 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
       selectedLayerRef.current = selectedLayer;
       viewport.addChild(selectedLayer);
       drawSelectedProvince(selectedLayer, selectedProvinceId, tileByCoord);
+      drawSelectedCity(selectedLayer, selectedCityId, world);
       setZoom(centerWorld(pixiApp, viewport, world));
 
       let dragging = false;
@@ -118,6 +128,13 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
       const endDrag = (event?: { global: { x: number; y: number } }) => {
         if (event && dragging && distance(dragStart.x, dragStart.y, event.global.x, event.global.y) < 4) {
           const local = viewport.toLocal(event.global);
+          const cityId = mapMode === "political" ? cityAtPoint(local.x, local.y, world) : undefined;
+          if (cityId) {
+            onSelectCity(cityId);
+            dragging = false;
+            return;
+          }
+
           const tileX = Math.floor(local.x / TILE_SIZE);
           const tileY = Math.floor(local.y / TILE_SIZE);
           const tile = tileByCoord.get(`${tileX},${tileY}`);
@@ -184,7 +201,7 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
       }
       app?.destroy(true, { children: true });
     };
-  }, [world, mapMode, onSelectProvince, tileByCoord]);
+  }, [world, mapMode, onSelectCity, onSelectProvince, tileByCoord]);
 
   useEffect(() => {
     const selectedLayer = selectedLayerRef.current;
@@ -194,7 +211,8 @@ export function WorldMap({ world, mapMode, selectedProvinceId, onSelectProvince 
 
     selectedLayer.clear();
     drawSelectedProvince(selectedLayer, selectedProvinceId, tileByCoord);
-  }, [selectedProvinceId, tileByCoord]);
+    drawSelectedCity(selectedLayer, selectedCityId, world);
+  }, [selectedCityId, selectedProvinceId, tileByCoord, world]);
 
   return (
     <div className="worldMap" ref={hostRef}>
@@ -214,7 +232,7 @@ function getResourceTooltip(
   tileByCoord: Map<string, Tile>,
   mapMode: MapMode,
 ): ResourceTooltip | undefined {
-  if (mapMode === "terrain") {
+  if (mapMode !== "resources") {
     return undefined;
   }
 
@@ -258,6 +276,8 @@ function drawWorld(
   const provinceBorders = new Graphics();
   const nationBorderGlow = new Graphics();
   const nationBorders = new Graphics();
+  const cities = new Graphics();
+  const cityLabels = new Container();
   const nationLabels = new Container();
 
   for (const tile of world.tiles) {
@@ -279,10 +299,10 @@ function drawWorld(
       }
     }
 
-    if (tile.resource && mapMode !== "terrain") {
-      const radius = mapMode === "resources" ? 4.4 : 2.8;
-      const strokeWidth = mapMode === "resources" ? 1.4 : 0.9;
-      const strokeAlpha = mapMode === "resources" ? 0.95 : 0.72;
+    if (tile.resource && mapMode === "resources") {
+      const radius = 4.4;
+      const strokeWidth = 1.4;
+      const strokeAlpha = 0.95;
       resources
         .circle(x + TILE_SIZE * 0.72, y + TILE_SIZE * 0.28, radius)
         .fill(resourceColors[tile.resource])
@@ -293,6 +313,9 @@ function drawWorld(
   drawDashedEdges(provinceBorders, world.provinceEdges, 0xe8f2dc, 0.95, 4, 3, 0.58);
   drawNationEdges(nationBorderGlow, world.nationEdges, world, 4.4, 0.84);
   drawSolidEdges(nationBorders, world.nationEdges, 0xf8fbf1, 1.65, 0.94);
+  if (mapMode === "political") {
+    drawCities(cities, cityLabels, world);
+  }
   drawNationLabels(nationLabels, world);
 
   container.addChild(
@@ -302,8 +325,76 @@ function drawWorld(
     provinceBorders,
     nationBorderGlow,
     nationBorders,
+    cities,
+    cityLabels,
     nationLabels,
   );
+}
+
+function cityAtPoint(x: number, y: number, world: World) {
+  let nearestCityId: string | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const city of world.cities) {
+    const cityX = city.x * TILE_SIZE + TILE_SIZE / 2;
+    const cityY = city.y * TILE_SIZE + TILE_SIZE / 2;
+    const hitRadius = city.isCapital ? 10 : 7;
+    const cityDistance = distance(x, y, cityX, cityY);
+
+    if (cityDistance <= hitRadius && cityDistance < nearestDistance) {
+      nearestCityId = city.id;
+      nearestDistance = cityDistance;
+    }
+  }
+
+  return nearestCityId;
+}
+
+function drawCities(graphics: Graphics, labels: Container, world: World) {
+  for (const city of world.cities) {
+    const nation = world.nationById.get(city.nationId);
+    const x = city.x * TILE_SIZE + TILE_SIZE / 2;
+    const y = city.y * TILE_SIZE + TILE_SIZE / 2;
+
+    if (city.isCapital) {
+      graphics
+        .circle(x, y, 6.2)
+        .fill({ color: 0xf8fbf1, alpha: 0.96 })
+        .stroke({ color: nation?.numericColor ?? 0xf8fbf1, width: 2.8, alpha: 1 });
+      graphics.circle(x, y, 2.2).fill(nation?.numericColor ?? 0x10161b);
+
+      labels.addChild(createCityLabel(city.name, x + 7, y + 5, 11, 3));
+      continue;
+    }
+
+    graphics
+      .circle(x, y, 3.6)
+      .fill({ color: 0xf8fbf1, alpha: 0.9 })
+      .stroke({ color: nation?.numericColor ?? 0xf8fbf1, width: 1.8, alpha: 0.95 });
+    labels.addChild(createCityLabel(city.name, x + 5, y - 12, 9, 2.4));
+  }
+}
+
+function createCityLabel(
+  name: string,
+  x: number,
+  y: number,
+  fontSize: number,
+  strokeWidth: number,
+) {
+  const label = new Text({
+    text: name,
+    style: {
+      fill: 0xf8fbf1,
+      fontFamily: "Arial",
+      fontSize,
+      fontWeight: "700",
+      stroke: { color: 0x10161b, width: strokeWidth },
+    },
+  });
+
+  label.position.set(x, y);
+  return label;
 }
 
 function drawNationEdges(
@@ -406,8 +497,11 @@ function drawSelectedProvince(
 
 function drawNationLabels(container: Container, world: World) {
   for (const nation of world.nations) {
-    const capital = world.provinceById.get(nation.capitalProvinceId);
-    if (!capital) {
+    const capitalCity = nation.capitalCityId ? world.cityById.get(nation.capitalCityId) : undefined;
+    const capitalProvince = world.provinceById.get(nation.capitalProvinceId);
+    const x = capitalCity?.x ?? capitalProvince?.centerX;
+    const y = capitalCity?.y ?? capitalProvince?.centerY;
+    if (x === undefined || y === undefined) {
       continue;
     }
 
@@ -422,9 +516,27 @@ function drawNationLabels(container: Container, world: World) {
       },
     });
 
-    label.position.set(capital.centerX * TILE_SIZE, capital.centerY * TILE_SIZE);
+    label.position.set(x * TILE_SIZE + TILE_SIZE * 0.7, y * TILE_SIZE - TILE_SIZE * 0.9);
     container.addChild(label);
   }
+}
+
+function drawSelectedCity(graphics: Graphics, cityId: string | undefined, world: World) {
+  if (!cityId) {
+    return;
+  }
+
+  const city = world.cityById.get(cityId);
+  if (!city) {
+    return;
+  }
+
+  const x = city.x * TILE_SIZE + TILE_SIZE / 2;
+  const y = city.y * TILE_SIZE + TILE_SIZE / 2;
+
+  graphics
+    .circle(x, y, city.isCapital ? 10.5 : 8)
+    .stroke({ color: 0xffffff, width: 2.4, alpha: 0.98 });
 }
 
 function centerWorld(app: Application, viewport: Container, world: World) {

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type MapMode, WorldMap } from "./components/WorldMap";
 import { buildDemoWorld } from "./world/buildDemoWorld";
+import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
 import { addYield, formatResourceName, getTileMonthlyYield, type ResourceTotals } from "./world/economy";
-import type { Resource, Terrain, Tile } from "./world/types";
+import {
+  buildInitialNationStockpiles,
+  calculateNationMonthlyIncome,
+  settleNationStockpiles,
+  type NationStockpile,
+} from "./world/settlement";
+import type { City, Resource, Terrain, Tile } from "./world/types";
 
 const world = buildDemoWorld();
 const mapModes: { id: MapMode; label: string }[] = [
@@ -19,6 +26,8 @@ export default function App() {
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
   const [elapsedMonths, setElapsedMonths] = useState(0);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [nationStockpiles, setNationStockpiles] = useState(() => buildInitialNationStockpiles(world));
+  const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
   const [selectedNationId, setSelectedNationId] = useState<string | undefined>();
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | undefined>(
     world.provinces[0]?.id,
@@ -29,8 +38,12 @@ export default function App() {
     [selectedProvinceId],
   );
   const selectedNationStats = useMemo(
-    () => buildNationStats(selectedNationId, elapsedMonths),
-    [elapsedMonths, selectedNationId],
+    () => buildNationStats(selectedNationId, nationStockpiles[selectedNationId ?? ""]),
+    [nationStockpiles, selectedNationId],
+  );
+  const selectedCityStats = useMemo(
+    () => buildCityStats(selectedCityId),
+    [selectedCityId],
   );
 
   useEffect(() => {
@@ -40,6 +53,7 @@ export default function App() {
 
     const timer = window.setInterval(() => {
       setElapsedMonths((current) => current + speed);
+      setNationStockpiles((current) => settleNationStockpiles(world, current, speed));
     }, 1000);
 
     return () => window.clearInterval(timer);
@@ -48,9 +62,22 @@ export default function App() {
   const handleSelectProvince = useCallback((provinceId: string | undefined) => {
     if (provinceId) {
       setSelectedProvinceId(provinceId);
+      setSelectedCityId(undefined);
+      setSelectedNationId(undefined);
     }
   }, []);
+  const handleSelectCity = useCallback((cityId: string) => {
+    const city = world.cityById.get(cityId);
+    if (!city) {
+      return;
+    }
+
+    setSelectedCityId(cityId);
+    setSelectedNationId(undefined);
+    setSelectedProvinceId(city.provinceId);
+  }, []);
   const handleSelectNation = useCallback((nationId: string) => {
+    setSelectedCityId(undefined);
     setSelectedNationId(nationId);
   }, []);
 
@@ -60,7 +87,9 @@ export default function App() {
         <WorldMap
           world={world}
           mapMode={mapMode}
+          selectedCityId={selectedCityId}
           selectedProvinceId={selectedProvinceId}
+          onSelectCity={handleSelectCity}
           onSelectProvince={handleSelectProvince}
         />
       </section>
@@ -75,12 +104,17 @@ export default function App() {
           {isPanelOpen ? ">" : "<"}
         </button>
         {isPanelOpen && (
-          <div className="panelContent" key={selectedNationId ?? "overview"}>
-            {selectedNationStats ? (
+          <div className="panelContent" key={selectedCityId ?? selectedNationId ?? "overview"}>
+            {selectedCityStats ? (
+              <CityDetailPanel
+                stats={selectedCityStats}
+                onBack={() => setSelectedCityId(undefined)}
+              />
+            ) : selectedNationStats ? (
               <NationDetailPanel
-                elapsedMonths={elapsedMonths}
                 stats={selectedNationStats}
                 onBack={() => setSelectedNationId(undefined)}
+                onSelectCity={handleSelectCity}
               />
             ) : (
               <>
@@ -132,6 +166,10 @@ export default function App() {
                     <span>Nations</span>
                     <strong>{world.nations.length}</strong>
                   </div>
+                  <div>
+                    <span>Cities</span>
+                    <strong>{world.cities.length}</strong>
+                  </div>
                 </div>
                 <section className="mapModePanel">
                   <h2>Map Mode</h2>
@@ -154,6 +192,7 @@ export default function App() {
                   <p><span className="line solid" /> Nation border</p>
                   <p><span className="line nationLine" /> Nation color edge</p>
                   <p><span className="resourceMark" /> Resource node</p>
+                  <p><span className="cityMark" /> City</p>
                 </section>
                 {selectedProvinceStats && (
                   <section className="provinceDetails">
@@ -226,14 +265,71 @@ export default function App() {
 }
 
 type NationStats = NonNullable<ReturnType<typeof buildNationStats>>;
+type CityStats = NonNullable<ReturnType<typeof buildCityStats>>;
 
-function NationDetailPanel({
-  elapsedMonths,
+function CityDetailPanel({
   onBack,
   stats,
 }: {
-  elapsedMonths: number;
   onBack: () => void;
+  stats: CityStats;
+}) {
+  return (
+    <section className="cityDetail">
+      <button className="backButton" onClick={onBack} type="button">
+        <span aria-hidden="true">{"<"}</span>
+        Back
+      </button>
+      <header className="cityDetailHeader">
+        <span style={{ borderColor: stats.nation.color }} />
+        <div>
+          <p className="eyebrow">{stats.city.isCapital ? "Capital City" : "City Detail"}</p>
+          <h1>{stats.city.name}</h1>
+          <p>{stats.nation.name} / {stats.province.name}</p>
+        </div>
+      </header>
+      <div className="statGrid">
+        <div>
+          <span>Population</span>
+          <strong className="smallStat">{formatInteger(stats.economy.population)}</strong>
+        </div>
+        <div>
+          <span>Monthly Gold</span>
+          <strong className="smallStat">{formatInteger(stats.economy.monthlyGold)}/mo</strong>
+        </div>
+        <div>
+          <span>Army</span>
+          <strong className="smallStat">{formatInteger(stats.economy.army)}</strong>
+        </div>
+        <div>
+          <span>Defense</span>
+          <strong className="smallStat">Lv {stats.economy.defense}</strong>
+        </div>
+      </div>
+      <section className="buildingSection">
+        <div className="sectionTitleRow">
+          <h2>Building Slots</h2>
+          <span>{stats.buildingSlots} slots</span>
+        </div>
+        <div className="buildingSlotGrid">
+          {Array.from({ length: stats.buildingSlots }, (_, index) => (
+            <div className="buildingSlot" key={index}>
+              Empty
+            </div>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function NationDetailPanel({
+  onBack,
+  onSelectCity,
+  stats,
+}: {
+  onBack: () => void;
+  onSelectCity: (cityId: string) => void;
   stats: NationStats;
 }) {
   return (
@@ -255,6 +351,30 @@ function NationDetailPanel({
           <strong className="smallStat">{stats.capitalName}</strong>
         </div>
         <div>
+          <span>Cities</span>
+          <strong>{stats.cityCount}</strong>
+        </div>
+        <div>
+          <span>Population</span>
+          <strong className="smallStat">{formatPopulation(stats.cityEconomy.population)}</strong>
+        </div>
+        <div>
+          <span>Monthly Gold</span>
+          <strong className="smallStat">{formatInteger(stats.cityEconomy.monthlyGold)}/mo</strong>
+        </div>
+        <div>
+          <span>Treasury</span>
+          <strong className="smallStat">{formatInteger(stats.stockpile.gold)}</strong>
+        </div>
+        <div>
+          <span>Army</span>
+          <strong className="smallStat">{formatInteger(stats.cityEconomy.army)}</strong>
+        </div>
+        <div>
+          <span>Max Defense</span>
+          <strong>Lv {stats.cityEconomy.maxDefense}</strong>
+        </div>
+        <div>
           <span>Provinces</span>
           <strong>{stats.provinceCount}</strong>
         </div>
@@ -262,11 +382,11 @@ function NationDetailPanel({
           <span>Resource Sites</span>
           <strong>{stats.resourceSiteCount}</strong>
         </div>
-        <div>
-          <span>Elapsed</span>
-          <strong>{elapsedMonths}</strong>
-        </div>
       </div>
+      <section className="resourceSummary">
+        <h2>Major Cities</h2>
+        <CityRows cities={stats.majorCities} onSelectCity={onSelectCity} />
+      </section>
       <section className="resourceSummary">
         <h2>Monthly Output</h2>
         <ResourceRows totals={stats.monthlyOutput} suffix="/month" />
@@ -280,6 +400,52 @@ function NationDetailPanel({
         <ResourceRows totals={stats.resourceSiteCounts} suffix="sites" />
       </section>
     </section>
+  );
+}
+
+function CityRows({
+  cities,
+  onSelectCity,
+}: {
+  cities: City[];
+  onSelectCity?: (cityId: string) => void;
+}) {
+  if (cities.length === 0) {
+    return <p className="emptyState">No cities founded</p>;
+  }
+
+  return (
+    <div className="cityRows">
+      {cities.map((city) => {
+        const province = world.provinceById.get(city.provinceId);
+        const content = (
+          <>
+            <span>
+              <strong>{city.name}</strong>
+              <em>{province?.name ?? "Unknown province"}</em>
+            </span>
+            <b>
+              {city.isCapital ? "Capital" : `Lv ${city.level}`}
+              <small>{formatPopulation(city.population)}</small>
+            </b>
+          </>
+        );
+
+        if (onSelectCity) {
+          return (
+            <button key={city.id} onClick={() => onSelectCity(city.id)} type="button">
+              {content}
+            </button>
+          );
+        }
+
+        return (
+          <p key={city.id}>
+            {content}
+          </p>
+        );
+      })}
+    </div>
   );
 }
 
@@ -321,7 +487,45 @@ function formatWorldTime(elapsedMonths: number) {
   return `Year ${year}, Month ${month}`;
 }
 
-function buildNationStats(nationId: string | undefined, elapsedMonths: number) {
+function formatPopulation(population: number) {
+  if (population >= 1000000) {
+    return `${(population / 1000000).toFixed(1)}M`;
+  }
+
+  return `${Math.round(population / 1000)}K`;
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function buildCityStats(cityId: string | undefined) {
+  if (!cityId) {
+    return undefined;
+  }
+
+  const city = world.cityById.get(cityId);
+  if (!city) {
+    return undefined;
+  }
+
+  const nation = world.nationById.get(city.nationId);
+  const province = world.provinceById.get(city.provinceId);
+  if (!nation || !province) {
+    return undefined;
+  }
+  const economy = calculateCityEconomy(city, world);
+
+  return {
+    buildingSlots: city.isCapital ? 12 : 8,
+    city,
+    economy,
+    nation,
+    province,
+  };
+}
+
+function buildNationStats(nationId: string | undefined, stockpile: NationStockpile | undefined) {
   if (!nationId) {
     return undefined;
   }
@@ -334,7 +538,15 @@ function buildNationStats(nationId: string | undefined, elapsedMonths: number) {
   const provinces = world.provinces.filter((province) => province.nationId === nationId);
   const provinceIds = new Set(provinces.map((province) => province.id));
   const tiles = world.tiles.filter((tile) => tile.provinceId && provinceIds.has(tile.provinceId));
-  const capitalName = world.provinceById.get(nation.capitalProvinceId)?.name ?? "Unknown";
+  const cities = world.cities
+    .filter((city) => city.nationId === nationId)
+    .sort((a, b) => Number(b.isCapital) - Number(a.isCapital) || b.population - a.population);
+  const capitalCity =
+    (nation.capitalCityId ? world.cityById.get(nation.capitalCityId) : undefined) ??
+    cities.find((city) => city.isCapital);
+  const capitalName = capitalCity?.name ?? world.provinceById.get(nation.capitalProvinceId)?.name ?? "Unknown";
+  const cityEconomy = calculateNationCityEconomy(nationId, world);
+  const monthlyIncome = calculateNationMonthlyIncome(world, nationId);
   const monthlyOutput: ResourceTotals = {};
   const resourceSiteCounts: ResourceTotals = {};
 
@@ -350,19 +562,18 @@ function buildNationStats(nationId: string | undefined, elapsedMonths: number) {
 
   return {
     capitalName,
-    currentResources: multiplyTotals(monthlyOutput, elapsedMonths),
+    cityCount: cities.length,
+    cityEconomy,
+    currentResources: stockpile?.resources ?? {},
+    majorCities: cities.slice(0, 6),
+    monthlyIncome,
     monthlyOutput,
     nation,
     provinceCount: provinces.length,
     resourceSiteCount: Object.values(resourceSiteCounts).reduce((sum, count) => sum + count, 0),
     resourceSiteCounts,
+    stockpile: stockpile ?? { gold: 0, resources: {} },
   };
-}
-
-function multiplyTotals(totals: ResourceTotals, multiplier: number): ResourceTotals {
-  return Object.fromEntries(
-    Object.entries(totals).map(([resource, amount]) => [resource, amount * multiplier]),
-  ) as ResourceTotals;
 }
 
 function buildProvinceStats(provinceId: string | undefined) {

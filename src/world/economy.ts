@@ -7,6 +7,8 @@ export type ResourceYield = {
 
 export type ResourceTotals = Partial<Record<Resource, number>>;
 
+export const resourceTypes: Resource[] = ["grain", "timber", "iron", "coal", "oil"];
+
 const resourceMonthlyOutput: Record<Resource, number> = {
   grain: 6,
   timber: 4,

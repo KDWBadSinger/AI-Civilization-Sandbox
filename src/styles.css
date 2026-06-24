@@ -387,6 +387,7 @@ h2 {
 }
 
 .resourceMark,
+.cityMark,
 .nationList span,
 .nationButton span {
   display: inline-block;
@@ -401,12 +402,19 @@ h2 {
   background: #e7d66f;
 }
 
+.cityMark {
+  border-radius: 50%;
+  background: #f8fbf1;
+  box-shadow: 0 0 0 2px #4d8bff;
+}
+
 .nationList span,
 .nationButton span {
   border-radius: 3px;
 }
 
-.nationDetail {
+.nationDetail,
+.cityDetail {
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -434,14 +442,16 @@ h2 {
   background: #2a363c;
 }
 
-.nationDetailHeader {
+.nationDetailHeader,
+.cityDetailHeader {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
 }
 
-.nationDetailHeader > span {
+.nationDetailHeader > span,
+.cityDetailHeader > span {
   display: inline-block;
   flex: 0 0 auto;
   width: 16px;
@@ -450,8 +460,23 @@ h2 {
   border-radius: 5px;
 }
 
-.nationDetailHeader h1 {
+.nationDetailHeader h1,
+.cityDetailHeader h1 {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cityDetailHeader > span {
+  border-width: 2px;
+  background: #f8fbf1;
+}
+
+.cityDetailHeader p:last-child {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #9fb7b1;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -460,12 +485,15 @@ h2 {
   min-width: 0;
 }
 
-.resourceRows {
+.resourceRows,
+.cityRows {
   display: grid;
   gap: 8px;
 }
 
-.resourceRows p {
+.resourceRows p,
+.cityRows p,
+.cityRows button {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -477,12 +505,59 @@ h2 {
   font-size: 13px;
 }
 
-.resourceRows span {
+.cityRows button {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cityRows button:hover {
+  border-color: rgb(255 255 255 / 18%);
+  background: #2a363c;
+}
+
+.resourceRows span,
+.cityRows em {
   color: #9fb7b1;
 }
 
-.resourceRows strong {
+.resourceRows strong,
+.cityRows strong {
   color: #eef3ec;
+}
+
+.cityRows p,
+.cityRows button {
+  align-items: center;
+}
+
+.cityRows span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cityRows em {
+  overflow: hidden;
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cityRows b {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 3px;
+  color: #eef3ec;
+  font-size: 12px;
+  text-align: right;
+}
+
+.cityRows small {
+  color: #9fb7b1;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .emptyState {
@@ -492,6 +567,45 @@ h2 {
   color: #9fb7b1;
   background: #202b30;
   font-size: 13px;
+}
+
+.sectionTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sectionTitleRow h2 {
+  margin-bottom: 0;
+}
+
+.sectionTitleRow span {
+  color: #9fb7b1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buildingSlotGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.buildingSlot {
+  display: grid;
+  min-width: 0;
+  min-height: 46px;
+  place-items: center;
+  border: 1px dashed rgb(255 255 255 / 18%);
+  border-radius: 7px;
+  color: #7f9299;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 3%), transparent 54%),
+    #202b30;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .provinceDetails {
