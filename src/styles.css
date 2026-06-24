@@ -486,14 +486,16 @@ h2 {
 }
 
 .resourceRows,
-.cityRows {
+.cityRows,
+.relationRows {
   display: grid;
   gap: 8px;
 }
 
 .resourceRows p,
 .cityRows p,
-.cityRows button {
+.cityRows button,
+.relationRows p {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -517,27 +519,32 @@ h2 {
 }
 
 .resourceRows span,
-.cityRows em {
+.cityRows em,
+.relationRows em {
   color: #9fb7b1;
 }
 
 .resourceRows strong,
-.cityRows strong {
+.cityRows strong,
+.relationRows strong {
   color: #eef3ec;
 }
 
 .cityRows p,
-.cityRows button {
+.cityRows button,
+.relationRows p {
   align-items: center;
 }
 
-.cityRows span {
+.cityRows span,
+.relationRows span {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
 
-.cityRows em {
+.cityRows em,
+.relationRows em {
   overflow: hidden;
   font-size: 11px;
   font-style: normal;
@@ -558,6 +565,41 @@ h2 {
   color: #9fb7b1;
   font-size: 11px;
   font-weight: 700;
+}
+
+.relationRows .attitudeBadge {
+  flex: 0 0 auto;
+  min-width: 62px;
+  padding: 4px 7px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 999px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.attitudeBadge.hostile {
+  color: #ffe6e4;
+  background: rgb(212 97 95 / 28%);
+}
+
+.attitudeBadge.wary {
+  color: #ffe9c8;
+  background: rgb(216 157 53 / 24%);
+}
+
+.attitudeBadge.neutral {
+  color: #dce7df;
+  background: rgb(255 255 255 / 7%);
+}
+
+.attitudeBadge.friendly {
+  color: #dff5e7;
+  background: rgb(66 166 107 / 25%);
+}
+
+.attitudeBadge.trusted {
+  color: #e7f2ff;
+  background: rgb(77 139 255 / 28%);
 }
 
 .emptyState {

@@ -31,6 +31,8 @@ Current map prototype:
 - Resource nodes are only visible on the resources map mode.
 - Run, pause, and speed up world time at 1x, 2x, or 5x.
 - Settle national gold and resource stockpiles every simulated month.
+- Generate initial nation-to-nation attitude values from -100 to 100.
+- Inspect each nation's attitude toward other nations in the nation detail panel.
 - Collapse or expand the right-side information panel.
 - Hover resource nodes to inspect monthly output.
 - Click a nation name to inspect its capital city, major cities, province count, monthly output, current resources, and resource sites.
