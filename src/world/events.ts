@@ -14,6 +14,7 @@ export type GameEventKind =
   | "city_developed"
   | "military_upkeep_shortage"
   | "military_supply_shortage"
+  | "military_disbanded"
   | "nation_defeated"
   | "province_occupied"
   | "army_group_created"

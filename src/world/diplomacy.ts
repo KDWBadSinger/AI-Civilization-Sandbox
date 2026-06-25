@@ -13,6 +13,7 @@ export type WarState = {
   battleCount?: number;
   attackerScore?: number;
   defenderScore?: number;
+  relationPenaltyAppliedMonth?: number;
   targetProvinceId?: string;
 };
 

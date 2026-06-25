@@ -163,10 +163,46 @@ select {
   border-radius: 3px;
 }
 
+.eventNationDetail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.compactBackButton {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.eventNationDetailHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.eventNationDetailHeader > span {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 42px;
+  border: 1px solid rgb(255 255 255 / 66%);
+  border-radius: 5px;
+}
+
+.eventNationDetailHeader h2 {
+  margin-bottom: 0;
+}
+
 .eventListSection {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  min-height: 0;
 }
 
 .eventRows {
@@ -230,6 +266,7 @@ select {
 .eventRow.war_ended,
 .eventRow.military_upkeep_shortage,
 .eventRow.military_supply_shortage,
+.eventRow.military_disbanded,
 .eventRow.recruitment_completed,
 .eventRow.city_developed {
   border-color: rgb(216 157 53 / 42%);

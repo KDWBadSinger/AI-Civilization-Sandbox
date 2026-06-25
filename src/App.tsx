@@ -96,7 +96,7 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
   const [eventLogMode, setEventLogMode] = useState<"nation" | "overview">("overview");
-  const [eventNationId, setEventNationId] = useState<string>(world.nations[0]?.id ?? "");
+  const [eventNationId, setEventNationId] = useState<string | undefined>();
   const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
   const [simulation, setSimulation] = useState<SimulationState>(() => {
@@ -129,8 +129,14 @@ export default function App() {
   );
   const overviewEvents = useMemo(() => sortEventsNewestFirst(simulation.events).slice(0, 80), [simulation.events]);
   const nationEvents = useMemo(
-    () => filterEventsForNation(simulation.events, eventNationId, Math.max(0, simulation.elapsedMonths - 24)),
+    () => eventNationId
+      ? filterEventsForNation(simulation.events, eventNationId, Math.max(0, simulation.elapsedMonths - 24)).slice(0, 20)
+      : [],
     [eventNationId, simulation.elapsedMonths, simulation.events],
+  );
+  const selectedEventNation = useMemo(
+    () => eventNationId ? world.nationById.get(eventNationId) : undefined,
+    [eventNationId],
   );
   const visibleArmyGroups = useMemo(
     () => getAllArmyGroups(simulation.military),
@@ -185,6 +191,7 @@ export default function App() {
           currentSimulation.military,
           nationStockpiles,
           nationPolicies,
+          currentSimulation.diplomacy,
           nextMonth,
           speed,
         );
@@ -300,9 +307,11 @@ export default function App() {
             eventNationId={eventNationId}
             nations={world.nations}
             nationEvents={nationEvents}
+            onBackToNationList={() => setEventNationId(undefined)}
             onSelectMode={setEventLogMode}
             onSelectNation={setEventNationId}
             overviewEvents={overviewEvents}
+            selectedEventNation={selectedEventNation}
           />
         )}
       </aside>
@@ -497,18 +506,31 @@ function EventLogPanel({
   eventNationId,
   nations,
   nationEvents,
+  onBackToNationList,
   onSelectMode,
   onSelectNation,
   overviewEvents,
+  selectedEventNation,
 }: {
   eventLogMode: "nation" | "overview";
-  eventNationId: string;
+  eventNationId: string | undefined;
   nations: Nation[];
   nationEvents: GameEvent[];
+  onBackToNationList: () => void;
   onSelectMode: (mode: "nation" | "overview") => void;
   onSelectNation: (nationId: string) => void;
   overviewEvents: GameEvent[];
+  selectedEventNation: Nation | undefined;
 }) {
+  const handleSelectOverview = () => {
+    onBackToNationList();
+    onSelectMode("overview");
+  };
+  const handleSelectNationMode = () => {
+    onBackToNationList();
+    onSelectMode("nation");
+  };
+
   return (
     <div className="eventPanelContent">
       <header>
@@ -518,20 +540,20 @@ function EventLogPanel({
       <div className="segmentedControl eventModeControl" role="group" aria-label="Event log mode">
         <button
           className={eventLogMode === "overview" ? "active" : ""}
-          onClick={() => onSelectMode("overview")}
+          onClick={handleSelectOverview}
           type="button"
         >
           Overview
         </button>
         <button
           className={eventLogMode === "nation" ? "active" : ""}
-          onClick={() => onSelectMode("nation")}
+          onClick={handleSelectNationMode}
           type="button"
         >
           Nation
         </button>
       </div>
-      {eventLogMode === "nation" && (
+      {eventLogMode === "nation" && !selectedEventNation && (
         <section className="eventNationSelector">
           <h2>Nation</h2>
           <div className="eventNationButtons">
@@ -549,13 +571,37 @@ function EventLogPanel({
           </div>
         </section>
       )}
-      <section className="eventListSection">
-        <div className="sectionTitleRow">
-          <h2>{eventLogMode === "overview" ? "Recent Major Events" : "Last 2 Years"}</h2>
-          <span>{eventLogMode === "overview" ? overviewEvents.length : nationEvents.length}</span>
-        </div>
-        <EventRows events={eventLogMode === "overview" ? overviewEvents : nationEvents} />
-      </section>
+      {eventLogMode === "overview" && (
+        <section className="eventListSection">
+          <div className="sectionTitleRow">
+            <h2>Recent Major Events</h2>
+            <span>{overviewEvents.length}</span>
+          </div>
+          <EventRows events={overviewEvents} />
+        </section>
+      )}
+      {eventLogMode === "nation" && selectedEventNation && (
+        <section className="eventNationDetail">
+          <button className="backButton compactBackButton" onClick={onBackToNationList} type="button">
+            <span aria-hidden="true">{"<"}</span>
+            Back
+          </button>
+          <header className="eventNationDetailHeader">
+            <span style={{ borderColor: selectedEventNation.color }} />
+            <div>
+              <p className="eyebrow">Nation</p>
+              <h2>{selectedEventNation.name}</h2>
+            </div>
+          </header>
+          <section className="eventListSection">
+            <div className="sectionTitleRow">
+              <h2>Last 2 Years</h2>
+              <span>{nationEvents.length}/20</span>
+            </div>
+            <EventRows events={nationEvents} />
+          </section>
+        </section>
+      )}
     </div>
   );
 }
