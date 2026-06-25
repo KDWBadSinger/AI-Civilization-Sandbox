@@ -149,6 +149,10 @@ function buildNationPolicyProfile(
   const income = calculateNationMonthlyIncome(world, nationId);
   const stockpile = stockpiles[nationId] ?? { gold: 0, resources: {} };
   const relationList = getNationRelationsFor(relations, nationId);
+  const adjacentNationIds = getAdjacentNationIds(world, nationId);
+  const adjacentRelations = relationList.filter((relation) =>
+    adjacentNationIds.has(otherNationId(relation, nationId)),
+  );
   const hostileRelations = relationList.filter((relation) => relation.attitude <= -25);
   const friendlyRelations = relationList.filter((relation) => relation.attitude >= 25);
   const worstRelation = relationList[0];
@@ -165,6 +169,7 @@ function buildNationPolicyProfile(
   return {
     armyPerThousand,
     bestRelation,
+    adjacentRelations,
     cities,
     economy,
     friendlyRelations,
@@ -183,15 +188,18 @@ function buildNationPolicyProfile(
 }
 
 function decideExpansion(profile: ReturnType<typeof buildNationPolicyProfile>): PolicyDirection<ExpansionPolicy> {
-  if (profile.hostileRelations.length === 0 || profile.armyPerThousand < 18) {
+  const borderHostileRelation = profile.adjacentRelations.find((relation) => relation.attitude <= -10);
+  const borderOpportunityRelation = profile.adjacentRelations.find((relation) => relation.attitude <= 12);
+
+  if (!borderHostileRelation && (!borderOpportunityRelation || profile.armyPerThousand < 22)) {
     return {
       policy: "none",
       label: expansionLabels.none,
-      rationale: "No immediate hostile target or insufficient army density.",
+      rationale: "No immediate tense border target or insufficient army density.",
     };
   }
 
-  const targetNationId = otherNationId(profile.worstRelation, profile.nationId);
+  const targetNationId = otherNationId(borderHostileRelation ?? borderOpportunityRelation!, profile.nationId);
 
   if (profile.resourceDiversity < 4) {
     return {
@@ -254,12 +262,27 @@ function decideDiplomacy(profile: ReturnType<typeof buildNationPolicyProfile>): 
     };
   }
 
-  if (profile.worstRelation && profile.worstRelation.attitude <= -55 && profile.armyPerThousand >= 30) {
+  const borderHostileRelation = profile.adjacentRelations.find((relation) => relation.attitude <= -10);
+  const expansionOpportunity = profile.adjacentRelations.find((relation) => relation.attitude <= 8);
+  if (borderHostileRelation && profile.armyPerThousand >= 24) {
     return {
       policy: "declare_war",
       label: diplomacyLabels.declare_war,
-      rationale: "Hostility is high and military readiness is strong.",
-      targetNationId: otherNationId(profile.worstRelation, profile.nationId),
+      rationale: "Hostility is high and military readiness is strong enough for border war.",
+      targetNationId: otherNationId(borderHostileRelation, profile.nationId),
+    };
+  }
+
+  if (
+    expansionOpportunity &&
+    profile.armyPerThousand >= 24 &&
+    (profile.resourceDiversity < 4 || profile.cities.length < Math.max(3, Math.floor(profile.provinces.length / 7)))
+  ) {
+    return {
+      policy: "declare_war",
+      label: diplomacyLabels.declare_war,
+      rationale: "A nearby border target is weakly aligned and expansion would improve strategic depth.",
+      targetNationId: otherNationId(expansionOpportunity, profile.nationId),
     };
   }
 
@@ -344,4 +367,26 @@ function decideSpyMissions(profile: ReturnType<typeof buildNationPolicyProfile>)
   }
 
   return missions;
+}
+
+function getAdjacentNationIds(world: World, nationId: string) {
+  const adjacentNationIds = new Set<string>();
+  const tileByCoord = new Map(world.tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
+
+  for (const tile of world.tiles) {
+    const province = tile.provinceId ? world.provinceById.get(tile.provinceId) : undefined;
+    if (province?.nationId !== nationId) {
+      continue;
+    }
+
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const neighbor = tileByCoord.get(`${tile.x + dx},${tile.y + dy}`);
+      const neighborProvince = neighbor?.provinceId ? world.provinceById.get(neighbor.provinceId) : undefined;
+      if (neighborProvince?.nationId && neighborProvince.nationId !== nationId) {
+        adjacentNationIds.add(neighborProvince.nationId);
+      }
+    }
+  }
+
+  return adjacentNationIds;
 }

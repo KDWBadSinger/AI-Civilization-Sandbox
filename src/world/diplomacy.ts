@@ -9,6 +9,12 @@ export type WarState = {
   attackerNationId: string;
   defenderNationId: string;
   startedAtMonth: number;
+  lastBattleMonth?: number;
+  battleCount?: number;
+  attackerScore?: number;
+  defenderScore?: number;
+  relationPenaltyAppliedMonth?: number;
+  targetProvinceId?: string;
 };
 
 export type AllianceTreaty = {
@@ -114,6 +120,10 @@ export function executeDiplomacyPoliciesWithEvents(
   }
 
   for (const [nationId, policyState] of Object.entries(policies)) {
+    if (policyState.decidedAtMonth !== currentMonth) {
+      continue;
+    }
+
     const diplomacyPolicy = policyState.diplomacy;
     const targetNationId = diplomacyPolicy.targetNationId;
 
@@ -123,7 +133,7 @@ export function executeDiplomacyPoliciesWithEvents(
 
     switch (diplomacyPolicy.policy) {
       case "declare_war":
-        if (canDeclareWar(next, nationId, targetNationId, currentMonth)) {
+        if (canDeclareWar(next, nationId, targetNationId, currentMonth, world)) {
           next.wars.push({
             attackerNationId: nationId,
             defenderNationId: targetNationId,
@@ -214,6 +224,12 @@ export function evaluateDiplomaticProposalsWithEvents(
   };
 
   if (next.truces.length !== diplomacy.truces.length) {
+    changed = true;
+  }
+
+  const treatyMaintenanceEvents = maintainLongTermTreaties(next, world, relations, currentMonth);
+  if (treatyMaintenanceEvents.length > 0) {
+    events.push(...treatyMaintenanceEvents);
     changed = true;
   }
 
@@ -455,6 +471,81 @@ function applyAcceptedProposal(
   return events;
 }
 
+function maintainLongTermTreaties(
+  diplomacy: DiplomacyState,
+  world: World,
+  relations: NationRelations,
+  currentMonth: number,
+) {
+  const events: GameEvent[] = [];
+
+  diplomacy.alliances = diplomacy.alliances.filter((alliance) => {
+    const age = currentMonth - alliance.signedAtMonth;
+    const relation = getNationRelation(relations, alliance.nationAId, alliance.nationBId);
+    if (age < 144 || (relation?.attitude ?? 0) >= 20) {
+      return true;
+    }
+
+    events.push(buildDiplomacyEvent({
+      currentMonth,
+      description: `${nationName(world, alliance.nationAId)} and ${nationName(world, alliance.nationBId)} dissolved their alliance after relations cooled.`,
+      id: `event-alliance-dissolved-${alliance.id}-${currentMonth}`,
+      kind: "alliance_dissolved",
+      nationIds: [alliance.nationAId, alliance.nationBId],
+      title: "Alliance Dissolved",
+    }));
+    return false;
+  });
+
+  diplomacy.vassalContracts = diplomacy.vassalContracts.filter((contract) => {
+    const age = currentMonth - contract.signedAtMonth;
+    if (age < 120) {
+      return true;
+    }
+
+    const relation = getNationRelation(relations, contract.overlordNationId, contract.vassalNationId);
+    const overlordPower = calculateNationPower(world, contract.overlordNationId);
+    const vassalPower = calculateNationPower(world, contract.vassalNationId);
+    const shouldBreak =
+      (relation?.attitude ?? 0) <= -45 ||
+      vassalPower >= overlordPower * 0.72;
+
+    if (!shouldBreak) {
+      return true;
+    }
+
+    events.push(buildDiplomacyEvent({
+      currentMonth,
+      description: `${nationName(world, contract.vassalNationId)} broke vassalage with ${nationName(world, contract.overlordNationId)}.`,
+      id: `event-vassal-broken-${contract.id}-${currentMonth}`,
+      kind: "vassalage_broken",
+      nationIds: [contract.overlordNationId, contract.vassalNationId],
+      title: "Vassalage Broken",
+    }));
+
+    if (!areNationsAtWar(diplomacy, contract.overlordNationId, contract.vassalNationId)) {
+      diplomacy.wars.push({
+        attackerNationId: contract.vassalNationId,
+        defenderNationId: contract.overlordNationId,
+        id: `war-rebellion-${relationKey(contract.overlordNationId, contract.vassalNationId)}-${currentMonth}`,
+        startedAtMonth: currentMonth,
+      });
+      events.push(buildDiplomacyEvent({
+        currentMonth,
+        description: `${nationName(world, contract.vassalNationId)} rebelled against ${nationName(world, contract.overlordNationId)}.`,
+        id: `event-vassal-rebellion-${contract.id}-${currentMonth}`,
+        kind: "war_declared",
+        nationIds: [contract.overlordNationId, contract.vassalNationId],
+        title: "Vassal Rebellion",
+      }));
+    }
+
+    return false;
+  });
+
+  return events;
+}
+
 function treatyIncludesNation(nationAId: string, nationBId: string, nationId: string) {
   return nationAId === nationId || nationBId === nationId;
 }
@@ -488,13 +579,41 @@ function canDeclareWar(
   nationAId: string,
   nationBId: string,
   currentMonth: number,
+  world?: World,
 ) {
   return (
     !areNationsAtWar(diplomacy, nationAId, nationBId) &&
     !areNationsAllied(diplomacy, nationAId, nationBId) &&
     !hasVassalTie(diplomacy, nationAId, nationBId) &&
-    !hasActiveTruce(diplomacy, nationAId, nationBId, currentMonth)
+    !hasActiveTruce(diplomacy, nationAId, nationBId, currentMonth) &&
+    (!world || areAdjacentNations(world, nationAId, nationBId))
   );
+}
+
+function areAdjacentNations(world: World, nationAId: string, nationBId: string) {
+  const tileByCoord = new Map(world.tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
+
+  for (const tile of world.tiles) {
+    const province = tile.provinceId ? world.provinceById.get(tile.provinceId) : undefined;
+    if (province?.nationId !== nationAId) {
+      continue;
+    }
+
+    const neighbors = [
+      tileByCoord.get(`${tile.x + 1},${tile.y}`),
+      tileByCoord.get(`${tile.x - 1},${tile.y}`),
+      tileByCoord.get(`${tile.x},${tile.y + 1}`),
+      tileByCoord.get(`${tile.x},${tile.y - 1}`),
+    ];
+    if (neighbors.some((neighbor) => {
+      const neighborProvince = neighbor?.provinceId ? world.provinceById.get(neighbor.provinceId) : undefined;
+      return neighborProvince?.nationId === nationBId;
+    })) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function canProposeAlliance(

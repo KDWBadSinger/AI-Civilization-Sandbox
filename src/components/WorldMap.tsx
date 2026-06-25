@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
 import { formatResourceName, getTileMonthlyYield } from "../world/economy";
 import type { MapEdge, Tile, World } from "../world/types";
+import type { ArmyGroup } from "../world/war";
 
 export type MapMode = "political" | "terrain" | "resources";
 
 type WorldMapProps = {
   world: World;
   mapMode: MapMode;
+  mapRevision: number;
+  armyGroups: ArmyGroup[];
   selectedCityId?: string;
   selectedProvinceId?: string;
   onSelectCity: (cityId: string) => void;
@@ -43,6 +46,8 @@ const resourceColors = {
 };
 
 export function WorldMap({
+  armyGroups,
+  mapRevision,
   world,
   mapMode,
   onSelectCity,
@@ -51,6 +56,9 @@ export function WorldMap({
   selectedProvinceId,
 }: WorldMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const armyGraphicsRef = useRef<Graphics | null>(null);
+  const armyLabelsRef = useRef<Container | null>(null);
+  const armyPathsRef = useRef<Graphics | null>(null);
   const selectedLayerRef = useRef<Graphics | null>(null);
   const tileByCoord = useMemo(
     () => new Map(world.tiles.map((tile) => [`${tile.x},${tile.y}`, tile])),
@@ -93,6 +101,16 @@ export function WorldMap({
       pixiApp.stage.addChild(viewport);
 
       drawWorld(viewport, world, mapMode, tileByCoord);
+      const armyPaths = new Graphics();
+      const armies = new Graphics();
+      const armyLabels = new Container();
+      armyPathsRef.current = armyPaths;
+      armyGraphicsRef.current = armies;
+      armyLabelsRef.current = armyLabels;
+      viewport.addChild(armyPaths, armies, armyLabels);
+      if (mapMode === "political") {
+        drawArmyGroups(armies, armyPaths, armyLabels, world, armyGroups);
+      }
       const selectedLayer = new Graphics();
       selectedLayerRef.current = selectedLayer;
       viewport.addChild(selectedLayer);
@@ -202,13 +220,32 @@ export function WorldMap({
       window.cancelAnimationFrame(resizeFrame);
       cleanupWheel?.();
       resizeObserver?.disconnect();
+      armyGraphicsRef.current = null;
+      armyLabelsRef.current = null;
+      armyPathsRef.current = null;
       selectedLayerRef.current = null;
       if (app?.canvas.parentElement === host) {
         host.removeChild(app.canvas);
       }
       app?.destroy(true, { children: true });
     };
-  }, [world, mapMode, onSelectCity, onSelectProvince, tileByCoord]);
+  }, [world, mapMode, mapRevision, onSelectCity, onSelectProvince, tileByCoord]);
+
+  useEffect(() => {
+    const armies = armyGraphicsRef.current;
+    const armyPaths = armyPathsRef.current;
+    const armyLabels = armyLabelsRef.current;
+    if (!armies || !armyPaths || !armyLabels) {
+      return;
+    }
+
+    armies.clear();
+    armyPaths.clear();
+    armyLabels.removeChildren();
+    if (mapMode === "political") {
+      drawArmyGroups(armies, armyPaths, armyLabels, world, armyGroups);
+    }
+  }, [armyGroups, mapMode, world]);
 
   useEffect(() => {
     const selectedLayer = selectedLayerRef.current;
@@ -391,6 +428,91 @@ function drawCities(graphics: Graphics, labels: Container, world: World) {
       .stroke({ color: nation?.numericColor ?? 0xf8fbf1, width: 1.8, alpha: 0.95 });
     labels.addChild(createCityLabel(city.name, x + 5, y - 12, 9, 2.4));
   }
+}
+
+function drawArmyGroups(
+  graphics: Graphics,
+  paths: Graphics,
+  labels: Container,
+  world: World,
+  armyGroups: ArmyGroup[],
+) {
+  const groupsByProvince = new Map<string, ArmyGroup[]>();
+
+  for (const group of armyGroups) {
+    if (totalArmyGroupUnits(group) <= 0) {
+      continue;
+    }
+    const provinceGroups = groupsByProvince.get(group.locationProvinceId) ?? [];
+    provinceGroups.push(group);
+    groupsByProvince.set(group.locationProvinceId, provinceGroups);
+  }
+
+  for (const group of armyGroups) {
+    const province = world.provinceById.get(group.locationProvinceId);
+    const nation = world.nationById.get(group.nationId);
+    if (!province || !nation || group.pathProvinceIds.length === 0) {
+      continue;
+    }
+
+    let lastX = province.centerX * TILE_SIZE;
+    let lastY = province.centerY * TILE_SIZE;
+    for (const pathProvinceId of group.pathProvinceIds.slice(0, 5)) {
+      const pathProvince = world.provinceById.get(pathProvinceId);
+      if (!pathProvince) {
+        continue;
+      }
+      const nextX = pathProvince.centerX * TILE_SIZE;
+      const nextY = pathProvince.centerY * TILE_SIZE;
+      paths
+        .moveTo(lastX, lastY)
+        .lineTo(nextX, nextY)
+        .stroke({ color: nation.numericColor, width: 1.25, alpha: 0.42 });
+      lastX = nextX;
+      lastY = nextY;
+    }
+  }
+
+  for (const [provinceId, provinceGroups] of groupsByProvince) {
+    const province = world.provinceById.get(provinceId);
+    if (!province) {
+      continue;
+    }
+
+    provinceGroups.forEach((group, index) => {
+      const nation = world.nationById.get(group.nationId);
+      const x = province.centerX * TILE_SIZE + (index % 3) * 9 - 9;
+      const y = province.centerY * TILE_SIZE + Math.floor(index / 3) * 8 - 5;
+      const color = nation?.numericColor ?? 0xf8fbf1;
+      const radius = group.stance === "attack" ? 5.8 : 5;
+
+      if (group.stance === "attack" || group.stance === "raid") {
+        graphics
+          .regularPoly(x, y, radius, 3, -Math.PI / 2)
+          .fill({ color, alpha: 0.96 })
+          .stroke({ color: 0xf8fbf1, width: 1.4, alpha: 0.94 });
+      } else {
+        graphics
+          .circle(x, y, radius)
+          .fill({ color, alpha: 0.95 })
+          .stroke({ color: 0xf8fbf1, width: 1.4, alpha: 0.94 });
+      }
+
+      labels.addChild(createCityLabel(shortArmyLabel(totalArmyGroupUnits(group)), x + 5, y + 4, 8, 2));
+    });
+  }
+}
+
+function totalArmyGroupUnits(group: ArmyGroup) {
+  return Object.values(group.units).reduce((sum, amount) => sum + amount, 0);
+}
+
+function shortArmyLabel(total: number) {
+  if (total >= 1000) {
+    return `${Math.round(total / 100) / 10}K`;
+  }
+
+  return String(total);
 }
 
 function createCityLabel(
