@@ -216,12 +216,33 @@ select {
   border-color: rgb(212 97 95 / 40%);
 }
 
+.eventRow.battle_fought,
+.eventRow.province_occupied,
+.eventRow.city_lost,
+.eventRow.nation_defeated,
+.eventRow.army_group_created,
+.eventRow.army_group_moved,
+.eventRow.army_group_ordered,
+.eventRow.army_group_merged {
+  border-color: rgb(212 97 95 / 52%);
+}
+
+.eventRow.war_ended,
+.eventRow.military_upkeep_shortage,
+.eventRow.military_supply_shortage,
+.eventRow.recruitment_completed,
+.eventRow.city_developed {
+  border-color: rgb(216 157 53 / 42%);
+}
+
 .eventRow.alliance_signed,
+.eventRow.alliance_dissolved,
 .eventRow.truce_signed {
   border-color: rgb(77 139 255 / 35%);
 }
 
-.eventRow.vassalage_signed {
+.eventRow.vassalage_signed,
+.eventRow.vassalage_broken {
   border-color: rgb(185 133 232 / 38%);
 }
 
@@ -670,6 +691,7 @@ h2 {
 }
 
 .diplomacyStatusPanel,
+.militaryPanel,
 .policyPanel,
 .spyMissionSection,
 .spyNetworkPanel {
@@ -683,6 +705,8 @@ h2 {
 .resourceRows,
 .cityRows,
 .diplomacyStatusRows,
+.militaryUnitRows,
+.warRows,
 .relationRows,
 .policyRows,
 .spyMissionRows,
@@ -695,6 +719,8 @@ h2 {
 .cityRows p,
 .cityRows button,
 .diplomacyStatusRows p,
+.militaryUnitRows p,
+.warRows p,
 .relationRows p,
 .policyRows p,
 .spyMissionRows p,
@@ -724,6 +750,8 @@ h2 {
 .resourceRows span,
 .cityRows em,
 .diplomacyStatusRows em,
+.militaryUnitRows em,
+.warRows em,
 .relationRows em,
 .policyRows em,
 .spyMissionRows em,
@@ -734,6 +762,8 @@ h2 {
 .resourceRows strong,
 .cityRows strong,
 .diplomacyStatusRows strong,
+.militaryUnitRows strong,
+.warRows strong,
 .relationRows strong,
 .policyRows strong,
 .spyMissionRows strong,
@@ -744,6 +774,8 @@ h2 {
 .cityRows p,
 .cityRows button,
 .diplomacyStatusRows p,
+.militaryUnitRows p,
+.warRows p,
 .relationRows p,
 .policyRows p,
 .spyMissionRows p,
@@ -753,6 +785,8 @@ h2 {
 
 .cityRows span,
 .diplomacyStatusRows span,
+.militaryUnitRows span,
+.warRows span,
 .relationRows span,
 .policyRows span,
 .spyMissionRows span,
@@ -764,6 +798,8 @@ h2 {
 
 .cityRows em,
 .diplomacyStatusRows em,
+.militaryUnitRows em,
+.warRows em,
 .relationRows em,
 .policyRows em,
 .spyMissionRows em,
@@ -779,6 +815,11 @@ h2 {
 }
 
 .diplomacyStatusRows em {
+  line-height: 1.3;
+}
+
+.militaryUnitRows em,
+.warRows em {
   line-height: 1.3;
 }
 
@@ -808,6 +849,32 @@ h2 {
   text-overflow: ellipsis;
 }
 
+.militaryOverview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.militaryOverview p {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 7px;
+  background: #202b30;
+}
+
+.militaryOverview span {
+  color: #9fb7b1;
+  font-size: 11px;
+}
+
+.militaryOverview strong {
+  color: #eef3ec;
+  font-size: 12px;
+}
+
 .cityRows small {
   color: #9fb7b1;
   font-size: 11px;
@@ -815,6 +882,8 @@ h2 {
 }
 
 .policyRows b,
+.militaryUnitRows b,
+.warRows b,
 .spyMissionRows b,
 .spyNetworkRows b {
   display: grid;
@@ -826,6 +895,7 @@ h2 {
 }
 
 .policyRows small,
+.warRows small,
 .spyMissionRows small,
 .spyNetworkRows small {
   color: #9fb7b1;
@@ -835,6 +905,10 @@ h2 {
 }
 
 .spyIntelTitle {
+  margin-top: 14px;
+}
+
+.warStatusTitle {
   margin-top: 14px;
 }
 

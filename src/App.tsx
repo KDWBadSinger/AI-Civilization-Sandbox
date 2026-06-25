@@ -45,6 +45,20 @@ import {
   type SpyNetwork,
 } from "./world/spies";
 import type { City, Nation, Resource, Terrain, Tile } from "./world/types";
+import {
+  advanceArmyGroups,
+  advanceMilitaryEconomy,
+  advanceWarSystem,
+  buildInitialMilitaryState,
+  getAllArmyGroups,
+  getNationWarSummary,
+  unitStats,
+  unitTypes,
+  type ArmyStance,
+  type ArmyUnits,
+  type MilitaryState,
+  type NationWarSummary,
+} from "./world/war";
 
 const world = buildDemoWorld();
 const mapModes: { id: MapMode; label: string }[] = [
@@ -59,6 +73,8 @@ type SimulationState = {
   diplomacy: Parameters<typeof getNationDiplomacySummary>[0];
   elapsedMonths: number;
   events: GameEvent[];
+  mapRevision: number;
+  military: MilitaryState;
   nationPolicies: Record<string, NationPolicyState>;
   nationRelations: NationRelations;
   nationStockpiles: Record<string, NationStockpile>;
@@ -93,6 +109,8 @@ export default function App() {
       diplomacy: buildInitialDiplomacyState(world),
       elapsedMonths: 0,
       events: initialSpies.events,
+      mapRevision: 0,
+      military: buildInitialMilitaryState(world),
       nationPolicies,
       nationRelations,
       nationStockpiles,
@@ -114,6 +132,10 @@ export default function App() {
     () => filterEventsForNation(simulation.events, eventNationId, Math.max(0, simulation.elapsedMonths - 24)),
     [eventNationId, simulation.elapsedMonths, simulation.events],
   );
+  const visibleArmyGroups = useMemo(
+    () => getAllArmyGroups(simulation.military),
+    [simulation.military],
+  );
   const selectedProvinceStats = useMemo(
     () => buildProvinceStats(selectedProvinceId),
     [selectedProvinceId],
@@ -125,6 +147,7 @@ export default function App() {
       simulation.nationPolicies[selectedNationId ?? ""],
       simulation.nationRelations,
       simulation.diplomacy,
+      simulation.military,
       simulation.spies,
       simulation.elapsedMonths,
     ),
@@ -157,6 +180,14 @@ export default function App() {
           currentMonth,
           nextMonth,
         );
+        const militaryEconomy = advanceMilitaryEconomy(
+          world,
+          currentSimulation.military,
+          nationStockpiles,
+          nationPolicies,
+          nextMonth,
+          speed,
+        );
         const spyUpdate = advanceSpyNetwork(
           currentSimulation.spies,
           nationPolicies,
@@ -176,15 +207,38 @@ export default function App() {
           spyUpdate.relations,
           nextMonth,
         );
-        const newEvents = [...spyUpdate.events, ...execution.events, ...evaluation.events];
+        const movementUpdate = advanceArmyGroups(
+          world,
+          evaluation.diplomacy,
+          militaryEconomy.military,
+          nextMonth,
+        );
+        const warUpdate = advanceWarSystem(
+          world,
+          evaluation.diplomacy,
+          movementUpdate.military,
+          spyUpdate.relations,
+          spyUpdate.spyNetwork,
+          nextMonth,
+        );
+        const newEvents = [
+          ...militaryEconomy.events,
+          ...spyUpdate.events,
+          ...execution.events,
+          ...evaluation.events,
+          ...movementUpdate.events,
+          ...warUpdate.events,
+        ];
 
         return {
-          diplomacy: evaluation.diplomacy,
+          diplomacy: warUpdate.diplomacy,
           elapsedMonths: nextMonth,
           events: [...currentSimulation.events, ...newEvents].slice(-240),
+          mapRevision: currentSimulation.mapRevision + (warUpdate.mapChanged || movementUpdate.mapChanged ? 1 : 0),
+          military: warUpdate.military,
           nationPolicies,
-          nationRelations: spyUpdate.relations,
-          nationStockpiles,
+          nationRelations: warUpdate.relations,
+          nationStockpiles: militaryEconomy.stockpiles,
           spies: spyUpdate.spyNetwork,
         };
       });
@@ -256,6 +310,8 @@ export default function App() {
         <WorldMap
           world={world}
           mapMode={mapMode}
+          mapRevision={simulation.mapRevision}
+          armyGroups={visibleArmyGroups}
           selectedCityId={selectedCityId}
           selectedProvinceId={selectedProvinceId}
           onSelectCity={handleSelectCity}
@@ -624,12 +680,12 @@ function NationDetailPanel({
           <strong className="smallStat">{formatInteger(stats.stockpile.gold)}</strong>
         </div>
         <div>
-          <span>Army</span>
-          <strong className="smallStat">{formatInteger(stats.cityEconomy.army)}</strong>
+          <span>Soldiers</span>
+          <strong className="smallStat">{formatInteger(stats.military.totalSoldiers)}</strong>
         </div>
         <div>
-          <span>Max Defense</span>
-          <strong>Lv {stats.cityEconomy.maxDefense}</strong>
+          <span>Morale</span>
+          <strong>{Math.round(stats.military.army.morale * 100)}%</strong>
         </div>
         <div>
           <span>Provinces</span>
@@ -645,6 +701,7 @@ function NationDetailPanel({
         </div>
       </div>
       <PolicyPanel monthsUntilReview={stats.monthsUntilPolicyReview} policy={stats.policy} />
+      <MilitaryPanel military={stats.military} />
       <SpyNetworkPanel spies={stats.spies} currentMonth={stats.currentMonth} />
       <DiplomacyStatusPanel diplomacy={stats.diplomacy} perspectiveNationId={stats.nation.id} />
       <section className="resourceSummary">
@@ -670,6 +727,138 @@ function NationDetailPanel({
         <h2>Resource Sites</h2>
         <ResourceRows totals={stats.resourceSiteCounts} suffix="sites" />
       </section>
+    </section>
+  );
+}
+
+function MilitaryPanel({ military }: { military: NationWarSummary }) {
+  return (
+    <section className="militaryPanel">
+      <div className="sectionTitleRow">
+        <h2>Military</h2>
+        <span>{formatInteger(military.totalSoldiers)} soldiers</span>
+      </div>
+      <div className="militaryOverview">
+        <p>
+          <span>Monthly Upkeep</span>
+          <strong>{formatDecimal(military.monthlyUpkeep, 1)} gold</strong>
+        </p>
+        <p>
+          <span>Attack / Defense</span>
+          <strong>{formatInteger(military.attackPower)} / {formatInteger(military.defensePower)}</strong>
+        </p>
+      </div>
+      <div className="militaryUnitRows">
+        {unitTypes.map((type) => (
+          <p key={type}>
+            <span>
+              <strong>{unitStats[type].label}</strong>
+              <em>
+                HP {unitStats[type].hp} / Speed {unitStats[type].speed} / Upkeep {unitStats[type].upkeepGold}
+              </em>
+            </span>
+            <b>{formatInteger(military.army.units[type])}</b>
+          </p>
+        ))}
+      </div>
+      <div className="sectionTitleRow warStatusTitle">
+        <h2>Field Army Groups</h2>
+        <span>{military.armyGroups.length}</span>
+      </div>
+      {military.armyGroups.length === 0 ? (
+        <p className="emptyState">No field army groups deployed</p>
+      ) : (
+        <div className="warRows">
+          {military.armyGroups.slice(0, 6).map((group) => (
+            <p key={group.id}>
+              <span>
+                <strong>{formatArmyStance(group.stance)}</strong>
+                <em>
+                  {world.provinceById.get(group.locationProvinceId)?.name ?? group.locationProvinceId}
+                  {group.destinationProvinceId
+                    ? ` -> ${world.provinceById.get(group.destinationProvinceId)?.name ?? group.destinationProvinceId}`
+                    : ""}
+                </em>
+              </span>
+              <b>
+                {formatInteger(countUnits(group.units))}
+                <small>{group.pathProvinceIds.length} steps</small>
+              </b>
+            </p>
+          ))}
+        </div>
+      )}
+      <div className="sectionTitleRow warStatusTitle">
+        <h2>City Garrisons</h2>
+        <span>{military.cityGarrisons.length}</span>
+      </div>
+      {military.cityGarrisons.length === 0 ? (
+        <p className="emptyState">No city garrisons</p>
+      ) : (
+        <div className="warRows">
+          {military.cityGarrisons.slice(0, 6).map((garrison) => (
+            <p key={garrison.cityId}>
+              <span>
+                <strong>{garrison.cityName}</strong>
+                <em>{garrison.provinceName}</em>
+              </span>
+              <b>
+                {formatInteger(garrison.totalSoldiers)}
+                <small>{formatUnitMix(garrison.units)}</small>
+              </b>
+            </p>
+          ))}
+        </div>
+      )}
+      <div className="sectionTitleRow warStatusTitle">
+        <h2>Recruitment Queue</h2>
+        <span>{military.recruitmentQueue.length}</span>
+      </div>
+      {military.recruitmentQueue.length === 0 ? (
+        <p className="emptyState">No active recruitment orders</p>
+      ) : (
+        <div className="warRows">
+          {military.recruitmentQueue.slice(0, 6).map((order) => (
+            <p key={order.id}>
+              <span>
+                <strong>{unitStats[order.unitType].label}</strong>
+                <em>{world.cityById.get(order.cityId)?.name ?? order.cityId}</em>
+              </span>
+              <b>
+                {formatInteger(order.amount)}
+                <small>Ready {formatWorldTime(order.completesAtMonth)}</small>
+              </b>
+            </p>
+          ))}
+        </div>
+      )}
+      <div className="sectionTitleRow warStatusTitle">
+        <h2>Active Wars</h2>
+        <span>{military.activeWars.length}</span>
+      </div>
+      {military.activeWars.length === 0 ? (
+        <p className="emptyState">No active wars</p>
+      ) : (
+        <div className="warRows">
+          {military.activeWars.map((war) => (
+            <p key={war.id}>
+              <span>
+                <strong>{world.nationById.get(war.enemyNationId)?.name ?? "Unknown nation"}</strong>
+                <em>
+                  Started {formatWorldTime(war.startedAtMonth)}
+                  {war.targetProvinceId
+                    ? ` / front ${world.provinceById.get(war.targetProvinceId)?.name ?? war.targetProvinceId}`
+                    : ""}
+                </em>
+              </span>
+              <b>
+                Score {formatDecimal(war.attackerScore ?? 0, 1)} / {formatDecimal(war.defenderScore ?? 0, 1)}
+                <small>{war.battleCount ?? 0} battles</small>
+              </b>
+            </p>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -1096,12 +1285,47 @@ function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function formatDecimal(value: number, digits: number) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  }).format(value);
+}
+
 function formatIntelResources(resources: ResourceTotals) {
   const output = Object.entries(resources)
     .filter(([, amount]) => amount > 0)
     .map(([resource, amount]) => `${formatResourceName(resource as Resource)} ${amount}`)
     .join(", ");
   return output || "No resources";
+}
+
+function countUnits(units: ArmyUnits) {
+  return unitTypes.reduce((sum, type) => sum + units[type], 0);
+}
+
+function formatUnitMix(units: ArmyUnits) {
+  return unitTypes
+    .filter((type) => units[type] > 0)
+    .map((type) => `${unitStats[type].label.split(" ")[0]} ${units[type]}`)
+    .join(", ");
+}
+
+function formatArmyStance(stance: ArmyStance) {
+  switch (stance) {
+    case "attack":
+      return "Attack";
+    case "defend":
+      return "Defend";
+    case "garrison":
+      return "Garrison";
+    case "raid":
+      return "Raid";
+    case "rally":
+      return "Rally";
+    case "retreat":
+      return "Retreat";
+  }
 }
 
 function buildCityStats(cityId: string | undefined) {
@@ -1136,6 +1360,7 @@ function buildNationStats(
   policy: NationPolicyState | undefined,
   relations: NationRelations,
   diplomacy: Parameters<typeof getNationDiplomacySummary>[0],
+  military: MilitaryState,
   spies: SpyNetwork,
   elapsedMonths: number,
 ) {
@@ -1183,6 +1408,7 @@ function buildNationStats(
     monthlyIncome,
     monthlyOutput,
     monthsUntilPolicyReview: policy ? Math.max(0, policy.nextDecisionMonth - elapsedMonths) : 0,
+    military: getNationWarSummary(diplomacy, military, world, nationId),
     nation,
     policy,
     provinceCount: provinces.length,
