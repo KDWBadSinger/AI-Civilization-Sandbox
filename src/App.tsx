@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type MapMode, WorldMap } from "./components/WorldMap";
+import { NationModelConfiguration } from "./components/NationModelConfiguration";
 import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
 import {
@@ -88,6 +89,7 @@ export default function App() {
   const [eventNationId, setEventNationId] = useState<string | undefined>();
   const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [isConfigurationOpen, setIsConfigurationOpen] = useState(false);
   const [simulation, setSimulation] = useState<SimulationState>(() => createInitialSimulationState(world));
   const simulationRef = useRef(simulation);
   const turnInProgressRef = useRef(false);
@@ -228,7 +230,19 @@ export default function App() {
   }, [cityReturnNationId]);
 
   return (
-    <main className={buildAppShellClassName(isPanelOpen, isEventPanelOpen)} ref={appRootRef} lang={language === "zh" ? "zh-CN" : "en"}>
+    <main
+      className={isConfigurationOpen ? "configurationSurface" : buildAppShellClassName(isPanelOpen, isEventPanelOpen)}
+      ref={appRootRef}
+      lang={language === "zh" ? "zh-CN" : "en"}
+    >
+      {isConfigurationOpen ? (
+        <NationModelConfiguration
+          language={language}
+          onBack={() => setIsConfigurationOpen(false)}
+          world={world}
+        />
+      ) : (
+        <>
       <aside className="eventPanel" aria-label="Event log">
         <button
           aria-label={isEventPanelOpen ? "Collapse event log" : "Expand event log"}
@@ -301,6 +315,17 @@ export default function App() {
                       <option value="en">English</option>
                     </select>
                   </label>
+                  <button
+                    className="aiConfigEntry"
+                    onClick={() => {
+                      setIsRunning(false);
+                      setIsConfigurationOpen(true);
+                    }}
+                    type="button"
+                  >
+                    <span>AI Configuration</span>
+                    <small>Models &amp; personalities</small>
+                  </button>
                 </header>
                 <section className="timePanel">
                   <div className="timeReadout">
@@ -453,6 +478,8 @@ export default function App() {
           </div>
         )}
       </aside>
+        </>
+      )}
     </main>
   );
 }
