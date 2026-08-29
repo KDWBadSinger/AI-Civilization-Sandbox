@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type MapMode, WorldMap } from "./components/WorldMap";
+import { MainMenu, type NewGameSettings } from "./components/MainMenu";
 import { NationModelConfiguration } from "./components/NationModelConfiguration";
 import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
@@ -60,7 +61,7 @@ import {
 import { isNationDefeated } from "./world/nationStatus";
 import { localizeText, type Language } from "./world/localization";
 
-const world = buildDemoWorld();
+let world = buildDemoWorld();
 const mapModes: { id: MapMode; label: string }[] = [
   { id: "political", label: "Political" },
   { id: "terrain", label: "Terrain" },
@@ -68,6 +69,7 @@ const mapModes: { id: MapMode; label: string }[] = [
 ];
 const speedOptions = [1, 2, 5] as const;
 type SimulationSpeed = (typeof speedOptions)[number];
+type AppSurface = "configuration" | "menu" | "world";
 
 function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean) {
   return [
@@ -82,6 +84,9 @@ function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean)
 export default function App() {
   const appRootRef = useRef<HTMLElement>(null);
   const [language, setLanguage] = useState<Language>("zh");
+  const [activeSurface, setActiveSurface] = useState<AppSurface>("menu");
+  const [configurationReturnSurface, setConfigurationReturnSurface] = useState<"menu" | "world">("menu");
+  const [worldRevision, setWorldRevision] = useState(0);
   const [mapMode, setMapMode] = useState<MapMode>("political");
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
@@ -89,7 +94,6 @@ export default function App() {
   const [eventNationId, setEventNationId] = useState<string | undefined>();
   const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
-  const [isConfigurationOpen, setIsConfigurationOpen] = useState(false);
   const [simulation, setSimulation] = useState<SimulationState>(() => createInitialSimulationState(world));
   const simulationRef = useRef(simulation);
   const turnInProgressRef = useRef(false);
@@ -127,7 +131,7 @@ export default function App() {
   );
   const selectedProvinceStats = useMemo(
     () => buildProvinceStats(selectedProvinceId),
-    [selectedProvinceId],
+    [selectedProvinceId, worldRevision],
   );
   const selectedNationStats = useMemo(
     () => buildNationStats(
@@ -229,16 +233,57 @@ export default function App() {
     setSelectedNationId(undefined);
   }, [cityReturnNationId]);
 
+  const handleStartGame = useCallback((settings: NewGameSettings) => {
+    const nextWorld = buildDemoWorld(settings.seed, {
+      cityCount: settings.cityCount,
+      nationCount: settings.nationCount,
+    });
+    const nextSimulation = createInitialSimulationState(nextWorld);
+    world = nextWorld;
+    simulationRef.current = nextSimulation;
+    setSimulation(nextSimulation);
+    setTurnProgress({
+      turnNumber: 1,
+      completedNationIds: [],
+      totalNations: nextWorld.nations.length,
+      phase: "idle",
+    });
+    setIsRunning(false);
+    setEventNationId(undefined);
+    setEventLogMode("overview");
+    setSelectedCityId(undefined);
+    setCityReturnNationId(undefined);
+    setSelectedNationId(undefined);
+    setSelectedProvinceId(nextWorld.provinces[0]?.id);
+    setWorldRevision((revision) => revision + 1);
+    setActiveSurface("world");
+  }, []);
+
   return (
     <main
-      className={isConfigurationOpen ? "configurationSurface" : buildAppShellClassName(isPanelOpen, isEventPanelOpen)}
+      className={activeSurface === "menu"
+        ? "mainMenuSurface"
+        : activeSurface === "configuration"
+          ? "configurationSurface"
+          : buildAppShellClassName(isPanelOpen, isEventPanelOpen)}
       ref={appRootRef}
       lang={language === "zh" ? "zh-CN" : "en"}
     >
-      {isConfigurationOpen ? (
-        <NationModelConfiguration
+      {activeSurface === "menu" ? (
+        <MainMenu
           language={language}
-          onBack={() => setIsConfigurationOpen(false)}
+          onChangeLanguage={setLanguage}
+          onOpenConfiguration={() => {
+            setConfigurationReturnSurface("menu");
+            setActiveSurface("configuration");
+          }}
+          onStartGame={handleStartGame}
+        />
+      ) : activeSurface === "configuration" ? (
+        <NationModelConfiguration
+          backLabel={configurationReturnSurface === "menu" ? "Back to Main Menu" : "Back to World"}
+          language={language}
+          onBack={() => setActiveSurface(configurationReturnSurface)}
           world={world}
         />
       ) : (
@@ -319,7 +364,8 @@ export default function App() {
                     className="aiConfigEntry"
                     onClick={() => {
                       setIsRunning(false);
-                      setIsConfigurationOpen(true);
+                      setConfigurationReturnSurface("world");
+                      setActiveSurface("configuration");
                     }}
                     type="button"
                   >

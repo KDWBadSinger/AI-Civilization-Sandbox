@@ -5,8 +5,14 @@ import { cityNames, governmentForms, nationNameBases } from "./nameCatalog";
 const width = 96;
 const height = 64;
 const defaultSeed = "observer-world-001";
-const nationCount = 6;
+const defaultNationCount = 6;
 const targetProvinceCount = 118;
+
+/** 新世界创建时可以调整的生成参数。 */
+export type WorldGenerationOptions = {
+  cityCount?: number;
+  nationCount?: number;
+};
 
 const nationColors = [
   { color: "#4d8bff", numericColor: 0x4d8bff },
@@ -15,6 +21,12 @@ const nationColors = [
   { color: "#d4615f", numericColor: 0xd4615f },
   { color: "#b985e8", numericColor: 0xb985e8 },
   { color: "#49b7c9", numericColor: 0x49b7c9 },
+  { color: "#e36fbc", numericColor: 0xe36fbc },
+  { color: "#8ea848", numericColor: 0x8ea848 },
+  { color: "#e27c36", numericColor: 0xe27c36 },
+  { color: "#6b79d6", numericColor: 0x6b79d6 },
+  { color: "#39a89d", numericColor: 0x39a89d },
+  { color: "#b56245", numericColor: 0xb56245 },
 ];
 const nationIds = ["aurora", "verdant", "sol", "ember", "lumen", "cobalt"];
 
@@ -78,13 +90,15 @@ type ProvinceSeed = {
   y: number;
 };
 
-export function buildDemoWorld(seed = defaultSeed): World {
+/** 按种子和可选规模参数生成一个完整世界。 */
+export function buildDemoWorld(seed = defaultSeed, options: WorldGenerationOptions = {}): World {
   const seedHash = hashString(seed);
   const rng = mulberry32(seedHash);
+  const requestedNationCount = clampInt(options.nationCount ?? defaultNationCount, 2, 12);
   const tiles = buildTiles(seedHash);
   const provinceSeeds = chooseProvinceSeeds(tiles, rng);
   const provinces = buildProvinces(tiles, provinceSeeds, seedHash);
-  const capitals = chooseCapitalProvinces(provinces, rng);
+  const capitals = chooseCapitalProvinces(provinces, rng, requestedNationCount);
   const nations = buildNations(capitals, rng);
   assignNationsToProvinces(provinces, capitals, nations, seedHash);
   ensureNationResourceCoverage(tiles, provinces, nations, seedHash);
@@ -92,7 +106,7 @@ export function buildDemoWorld(seed = defaultSeed): World {
   const provinceById = new Map(provinces.map((province) => [province.id, province]));
   const nationById = new Map(nations.map((nation) => [nation.id, nation]));
   const { provinceEdges, nationEdges } = buildBorders(tiles, provinceById);
-  const cities = buildCities(tiles, provinces, nations, seedHash);
+  const cities = buildCities(tiles, provinces, nations, seedHash, options.cityCount);
   const cityById = new Map(cities.map((city) => [city.id, city]));
 
   return {
@@ -211,12 +225,16 @@ function buildProvinces(tiles: Tile[], seeds: ProvinceSeed[], seedHash: number):
     .filter((province): province is Province => province !== undefined);
 }
 
-function chooseCapitalProvinces(provinces: Province[], rng: () => number): Province[] {
+function chooseCapitalProvinces(
+  provinces: Province[],
+  rng: () => number,
+  requestedNationCount: number,
+): Province[] {
   const capitals: Province[] = [];
   const first = provinces[Math.floor(rng() * provinces.length)];
   capitals.push(first);
 
-  while (capitals.length < Math.min(nationCount, provinces.length)) {
+  while (capitals.length < Math.min(requestedNationCount, provinces.length)) {
     let bestProvince = provinces[0];
     let bestScore = -1;
 
@@ -343,6 +361,7 @@ function buildCities(
   provinces: Province[],
   nations: Nation[],
   seedHash: number,
+  requestedCityCount?: number,
 ): City[] {
   const tilesByProvince = new Map<string, Tile[]>();
   const provincesByNation = new Map<string, Province[]>();
@@ -365,6 +384,7 @@ function buildCities(
     provincesByNation.set(province.nationId, nationProvinces);
   }
 
+  const remainingProvincesByNation = new Map<string, Province[]>();
   for (const nation of nations) {
     const ownedProvinces = provincesByNation.get(nation.id) ?? [];
     if (ownedProvinces.length === 0) {
@@ -372,12 +392,6 @@ function buildCities(
     }
 
     const ownedTiles = ownedProvinces.flatMap((province) => tilesByProvince.get(province.id) ?? []);
-    const resourceSiteCount = ownedTiles.filter((tile) => tile.resource).length;
-    const targetCityCount = clampInt(
-      1 + Math.floor(ownedProvinces.length / 6) + Math.floor(resourceSiteCount / 28),
-      1,
-      9,
-    );
     const capitalProvince =
       ownedProvinces.find((province) => province.id === nation.capitalProvinceId) ??
       ownedProvinces[0];
@@ -397,34 +411,86 @@ function buildCities(
     const remainingProvinces = ownedProvinces
       .filter((province) => province.id !== capitalProvince.id)
       .sort((a, b) => b.tileCount - a.tileCount);
+    remainingProvincesByNation.set(nation.id, remainingProvinces);
 
-    while (cities.filter((city) => city.nationId === nation.id).length < targetCityCount) {
-      if (remainingProvinces.length === 0) {
-        break;
+    if (requestedCityCount === undefined) {
+      const resourceSiteCount = ownedTiles.filter((tile) => tile.resource).length;
+      const targetCityCount = clampInt(
+        1 + Math.floor(ownedProvinces.length / 6) + Math.floor(resourceSiteCount / 28),
+        1,
+        9,
+      );
+
+      while (cities.filter((city) => city.nationId === nation.id).length < targetCityCount) {
+        if (remainingProvinces.length === 0) break;
+        const province = addCityForNation(
+          nation,
+          remainingProvinces,
+          tilesByProvince,
+          cities,
+          seedHash,
+          cityIndex,
+        );
+        remainingProvinces.splice(remainingProvinces.indexOf(province), 1);
+        cityIndex += 1;
       }
+    }
+  }
 
-      const province = chooseCityProvince(
+  if (requestedCityCount !== undefined) {
+    const targetCityCount = clampInt(requestedCityCount, nations.length, provinces.length);
+    while (cities.length < targetCityCount) {
+      const availableNations = nations
+        .filter((nation) => (remainingProvincesByNation.get(nation.id)?.length ?? 0) > 0)
+        .sort((a, b) => countNationCities(cities, a.id) - countNationCities(cities, b.id));
+      const nation = availableNations[0];
+      if (!nation) break;
+      const remainingProvinces = remainingProvincesByNation.get(nation.id) ?? [];
+      const province = addCityForNation(
+        nation,
         remainingProvinces,
         tilesByProvince,
         cities,
         seedHash,
         cityIndex,
       );
-      const tile = chooseCityTile(
-        province,
-        tilesByProvince.get(province.id) ?? [],
-        cities,
-        seedHash,
-        cityIndex,
-      );
-
-      cities.push(createCity(nation, province, tile, cityIndex, false, seedHash));
-      cityIndex += 1;
       remainingProvinces.splice(remainingProvinces.indexOf(province), 1);
+      cityIndex += 1;
     }
   }
 
   return cities;
+}
+
+function addCityForNation(
+  nation: Nation,
+  remainingProvinces: Province[],
+  tilesByProvince: Map<string, Tile[]>,
+  cities: City[],
+  seedHash: number,
+  cityIndex: number,
+): Province {
+  const province = chooseCityProvince(
+    remainingProvinces,
+    tilesByProvince,
+    cities,
+    seedHash,
+    cityIndex,
+  );
+  const tile = chooseCityTile(
+    province,
+    tilesByProvince.get(province.id) ?? [],
+    cities,
+    seedHash,
+    cityIndex,
+  );
+
+  cities.push(createCity(nation, province, tile, cityIndex, false, seedHash));
+  return province;
+}
+
+function countNationCities(cities: City[], nationId: string): number {
+  return cities.reduce((count, city) => count + Number(city.nationId === nationId), 0);
 }
 
 function createCity(

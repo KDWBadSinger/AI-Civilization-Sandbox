@@ -19,6 +19,7 @@ type ConnectionState =
   | { kind: "error"; code: ModelConnectionErrorCode | "unknown" };
 
 type NationModelConfigurationProps = {
+  backLabel?: string;
   language: Language;
   onBack: () => void;
   world: World;
@@ -26,6 +27,7 @@ type NationModelConfigurationProps = {
 
 /** 渲染每个国家独立的第三方大模型与国家性格配置页面。 */
 export function NationModelConfiguration({
+  backLabel = "Back to World",
   language,
   onBack,
   world,
@@ -100,7 +102,7 @@ export function NationModelConfiguration({
     return (
       <div className="modelConfigEmpty">
         <h1>No Nations Available</h1>
-        <button className="secondaryControl" onClick={onBack} type="button">Back to World</button>
+        <button className="secondaryControl" onClick={onBack} type="button">{backLabel}</button>
       </div>
     );
   }
@@ -115,7 +117,7 @@ export function NationModelConfiguration({
         </div>
         <div className="modelConfigTopbarActions">
           {isDirty && <span className="unsavedBadge">Unsaved changes</span>}
-          <button className="secondaryControl" onClick={onBack} type="button">Back to World</button>
+          <button className="secondaryControl" onClick={onBack} type="button">{backLabel}</button>
         </div>
       </header>
 
