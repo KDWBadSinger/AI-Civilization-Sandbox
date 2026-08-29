@@ -11,7 +11,6 @@ export type NewGameSettings = {
 type MainMenuProps = {
   language: Language;
   onChangeLanguage: (language: Language) => void;
-  onOpenConfiguration: () => void;
   onStartGame: (settings: NewGameSettings) => void;
 };
 
@@ -21,7 +20,6 @@ const DEFAULT_SEED = "observer-world-001";
 export function MainMenu({
   language,
   onChangeLanguage,
-  onOpenConfiguration,
   onStartGame,
 }: MainMenuProps) {
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
@@ -138,10 +136,6 @@ export function MainMenu({
             <button className="menuPrimaryButton" onClick={() => setIsCreatingWorld(true)} type="button">
               Start Game
               <span aria-hidden="true">→</span>
-            </button>
-            <button className="menuSecondaryButton" onClick={onOpenConfiguration} type="button">
-              <span>Configuration</span>
-              <small>Nation models &amp; personalities</small>
             </button>
             <div className="mainMenuLanguage">
               <span>Game Language</span>

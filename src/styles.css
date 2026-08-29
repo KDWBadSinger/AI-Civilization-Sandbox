@@ -255,8 +255,7 @@ select {
   align-content: center;
 }
 
-.menuPrimaryButton,
-.menuSecondaryButton {
+.menuPrimaryButton {
   width: 100%;
   min-height: 58px;
   border-radius: 8px;
@@ -290,32 +289,6 @@ select {
 
 .menuPrimaryButton:hover > span {
   transform: translateX(3px);
-}
-
-.menuSecondaryButton {
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  padding: 0 18px;
-  border: 1px solid rgb(202 218 209 / 16%);
-  color: #e4ece7;
-  background: var(--menu-panel);
-  text-align: left;
-}
-
-.menuSecondaryButton:hover {
-  border-color: rgb(202 218 209 / 30%);
-  background: rgb(22 39 44 / 92%);
-}
-
-.menuSecondaryButton span {
-  font-size: 14px;
-  font-weight: 750;
-}
-
-.menuSecondaryButton small {
-  color: #80928a;
-  font-size: 11px;
 }
 
 .mainMenuLanguage {

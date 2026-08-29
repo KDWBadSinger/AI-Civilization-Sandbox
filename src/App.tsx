@@ -85,7 +85,6 @@ export default function App() {
   const appRootRef = useRef<HTMLElement>(null);
   const [language, setLanguage] = useState<Language>("zh");
   const [activeSurface, setActiveSurface] = useState<AppSurface>("menu");
-  const [configurationReturnSurface, setConfigurationReturnSurface] = useState<"menu" | "world">("menu");
   const [worldRevision, setWorldRevision] = useState(0);
   const [mapMode, setMapMode] = useState<MapMode>("political");
   const [isRunning, setIsRunning] = useState(false);
@@ -273,17 +272,12 @@ export default function App() {
         <MainMenu
           language={language}
           onChangeLanguage={setLanguage}
-          onOpenConfiguration={() => {
-            setConfigurationReturnSurface("menu");
-            setActiveSurface("configuration");
-          }}
           onStartGame={handleStartGame}
         />
       ) : activeSurface === "configuration" ? (
         <NationModelConfiguration
-          backLabel={configurationReturnSurface === "menu" ? "Back to Main Menu" : "Back to World"}
           language={language}
-          onBack={() => setActiveSurface(configurationReturnSurface)}
+          onBack={() => setActiveSurface("world")}
           world={world}
         />
       ) : (
@@ -364,7 +358,6 @@ export default function App() {
                     className="aiConfigEntry"
                     onClick={() => {
                       setIsRunning(false);
-                      setConfigurationReturnSurface("world");
                       setActiveSurface("configuration");
                     }}
                     type="button"
