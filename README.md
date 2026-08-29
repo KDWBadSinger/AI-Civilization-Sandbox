@@ -4,6 +4,20 @@
 
 A turn-based civilization simulation sandbox where AI-controlled nations make their own decisions, develop their societies, and compete for survival. As the world observer, you can watch nations build cities, manage resources, set policies, conduct diplomacy, deploy spies, and wage wars.
 
+## 界面预览 / Interface Preview
+
+### 主菜单 / Main Menu
+
+![AI Civilization Sandbox main menu](docs/images/main-menu.png)
+
+### 世界观察界面 / World Observer
+
+![AI Civilization Sandbox world observer](docs/images/world-observer.png)
+
+### 国家 AI 配置 / Nation AI Configuration
+
+![AI Civilization Sandbox nation AI configuration](docs/images/nation-ai-configuration.png)
+
 ## 中文介绍
 
 ### 游戏是什么
