@@ -169,11 +169,6 @@ export function MainMenu({
           </nav>
         )}
       </div>
-
-      <footer className="mainMenuFooter">
-        <span>Turn-based world simulation</span>
-        <span>Every nation thinks for itself</span>
-      </footer>
     </section>
   );
 }

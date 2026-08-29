@@ -104,7 +104,6 @@ const staticZh: Record<string, string> = {
   "The same settings and seed will generate the same starting world.": "相同的设置与种子将生成相同的初始世界。",
   "Nation Count": "国家数量", "City Count": "城市数量", "World Preview": "世界预览",
   "Generate World": "生成世界", "2–12 nations": "2–12 个国家",
-  "Turn-based world simulation": "回合制世界模拟", "Every nation thinks for itself": "每个国家都独立思考",
 };
 
 const phraseZh: Array<[RegExp, string]> = [

@@ -63,7 +63,7 @@ select {
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   width: 100%;
   height: 100%;
   min-height: 620px;
@@ -171,8 +171,7 @@ select {
   transform: rotate(18deg);
 }
 
-.mainMenuBrand,
-.mainMenuFooter {
+.mainMenuBrand {
   position: relative;
   z-index: 1;
   display: flex;
@@ -181,8 +180,7 @@ select {
 }
 
 .mainMenuBrand p,
-.mainMenuBrand span,
-.mainMenuFooter span {
+.mainMenuBrand span {
   margin: 0;
   color: #91a49c;
   font-size: 11px;
@@ -480,22 +478,6 @@ select {
   min-height: 50px;
 }
 
-.mainMenuFooter {
-  justify-content: flex-start;
-  gap: 28px;
-}
-
-.mainMenuFooter span {
-  color: #596a63;
-  font-size: 9px;
-}
-
-.mainMenuFooter span + span::before {
-  margin-right: 28px;
-  color: #495952;
-  content: "•";
-}
-
 @keyframes menuReveal {
   from {
     opacity: 0;
@@ -577,9 +559,6 @@ select {
     width: 100%;
   }
 
-  .mainMenuFooter span:last-child {
-    display: none;
-  }
 }
 
 @media (max-width: 420px) {

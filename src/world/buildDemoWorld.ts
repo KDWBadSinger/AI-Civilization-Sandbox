@@ -1,6 +1,6 @@
 import type { City, MapEdge, Nation, Province, Resource, Terrain, Tile, World } from "./types";
 import { resourceTypes } from "./economy";
-import { cityNames, governmentForms, nationNameBases } from "./nameCatalog";
+import { cityNames, governmentForms, nationNameBases, provinceNames } from "./nameCatalog";
 
 const width = 96;
 const height = 64;
@@ -30,60 +30,6 @@ const nationColors = [
 ];
 const nationIds = ["aurora", "verdant", "sol", "ember", "lumen", "cobalt"];
 
-const namePrefixes = [
-  "North",
-  "South",
-  "East",
-  "West",
-  "High",
-  "Low",
-  "Old",
-  "New",
-  "Red",
-  "Blue",
-  "Silver",
-  "Golden",
-  "Green",
-  "Black",
-  "White",
-  "Clear",
-  "Bright",
-  "Deep",
-  "Storm",
-  "Cloud",
-  "Star",
-  "Moon",
-  "Sun",
-  "Stone",
-];
-
-const nameRoots = [
-  "reach",
-  "mere",
-  "vale",
-  "plain",
-  "wood",
-  "ford",
-  "ridge",
-  "basin",
-  "march",
-  "watch",
-  "harbor",
-  "field",
-  "coast",
-  "gate",
-  "fen",
-  "fall",
-  "run",
-  "moor",
-  "hold",
-  "pass",
-  "crown",
-  "barrow",
-  "garden",
-  "forge",
-];
-
 type ProvinceSeed = {
   id: string;
   x: number;
@@ -97,7 +43,8 @@ export function buildDemoWorld(seed = defaultSeed, options: WorldGenerationOptio
   const requestedNationCount = clampInt(options.nationCount ?? defaultNationCount, 2, 12);
   const tiles = buildTiles(seedHash);
   const provinceSeeds = chooseProvinceSeeds(tiles, rng);
-  const provinces = buildProvinces(tiles, provinceSeeds, seedHash);
+  const provinceNamePool = shuffled(provinceNames, mulberry32(seedHash ^ 0x51f15e));
+  const provinces = buildProvinces(tiles, provinceSeeds, seedHash, provinceNamePool);
   const capitals = chooseCapitalProvinces(provinces, rng, requestedNationCount);
   const nations = buildNations(capitals, rng);
   assignNationsToProvinces(provinces, capitals, nations, seedHash);
@@ -170,7 +117,12 @@ function chooseProvinceSeeds(tiles: Tile[], rng: () => number): ProvinceSeed[] {
   return seeds;
 }
 
-function buildProvinces(tiles: Tile[], seeds: ProvinceSeed[], seedHash: number): Province[] {
+function buildProvinces(
+  tiles: Tile[],
+  seeds: ProvinceSeed[],
+  seedHash: number,
+  provinceNamePool: typeof provinceNames,
+): Province[] {
   const provinceStats = new Map<string, { xSum: number; ySum: number; count: number }>();
 
   for (const tile of tiles) {
@@ -211,11 +163,13 @@ function buildProvinces(tiles: Tile[], seeds: ProvinceSeed[], seedHash: number):
         return undefined;
       }
 
+      const nameEntry = provinceNamePool[index % provinceNamePool.length];
+      const nameCycle = Math.floor(index / provinceNamePool.length);
       return {
         id: seed.id,
-        name: provinceName(index),
-        nameEn: provinceName(index),
-        nameZh: `第${index + 1}省`,
+        name: nameCycle === 0 ? nameEntry.en : `${nameEntry.en} ${nameCycle + 1}`,
+        nameEn: nameCycle === 0 ? nameEntry.en : `${nameEntry.en} ${nameCycle + 1}`,
+        nameZh: nameCycle === 0 ? nameEntry.zh : `${nameEntry.zh}${nameCycle + 1}`,
         nationId: "",
         centerX: stat.xSum / stat.count,
         centerY: stat.ySum / stat.count,
@@ -814,12 +768,6 @@ function resourceAt(
   }
 
   return undefined;
-}
-
-function provinceName(index: number) {
-  const prefix = namePrefixes[index % namePrefixes.length];
-  const root = nameRoots[Math.floor(index / namePrefixes.length) % nameRoots.length];
-  return `${prefix}${root}`;
 }
 
 function isLand(tile: Tile) {
