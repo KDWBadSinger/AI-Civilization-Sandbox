@@ -29,8 +29,12 @@ Current map prototype:
 - Click a city to inspect population, monthly gold, army, defense, and empty building slots.
 - Switch between political, terrain, and resources map modes.
 - Resource nodes are only visible on the resources map mode.
-- Run, pause, and speed up world time at 1x, 2x, or 5x.
-- Settle national gold and resource stockpiles every simulated month.
+- Run the simulation as discrete turns: every surviving nation completes its awaited action before the turn settles.
+- Run one turn manually, pause automatic turns, or change automatic turn playback pace to 1x, 2x, or 5x.
+- Settle exactly one simulated month of gold and resources at the end of each completed turn.
+- Guarantee every starting nation owns at least one site for each of the five resource types.
+- Generate city names from a maintainable bilingual name table and nation names from randomized name/government-form tables.
+- Switch the complete interface and map labels between Simplified Chinese and English.
 - Generate initial nation-to-nation attitude values from -100 to 100.
 - Inspect each nation's attitude toward other nations in the nation detail panel.
 - Store diplomacy state separately from relations, including wars, alliances, vassal contracts, truces, and proposals.

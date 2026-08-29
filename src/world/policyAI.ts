@@ -1,5 +1,6 @@
 import { calculateNationCityEconomy } from "./cityEconomy";
 import { resourceTypes } from "./economy";
+import { isNationActive } from "./nationStatus";
 import { getNationRelationsFor, otherNationId, type NationRelations } from "./relationships";
 import { calculateNationMonthlyIncome, type NationStockpiles } from "./settlement";
 import type { Resource, World } from "./types";
@@ -102,6 +103,10 @@ export function advanceNationPolicies(
   const nextPolicies = { ...currentPolicies };
 
   for (const nation of world.nations) {
+    if (!isNationActive(world, nation.id)) {
+      continue;
+    }
+
     const currentPolicy =
       nextPolicies[nation.id] ??
       decideNationPolicy(world, relations, stockpiles, nation.id, fromMonth);

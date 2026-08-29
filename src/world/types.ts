@@ -5,6 +5,10 @@ export type Resource = "grain" | "timber" | "iron" | "coal" | "oil";
 export type Nation = {
   id: string;
   name: string;
+  nameEn: string;
+  nameZh: string;
+  nameBaseId: string;
+  governmentFormId: string;
   color: string;
   numericColor: number;
   capitalProvinceId: string;
@@ -14,6 +18,8 @@ export type Nation = {
 export type Province = {
   id: string;
   name: string;
+  nameEn: string;
+  nameZh: string;
   nationId: string;
   centerX: number;
   centerY: number;
@@ -34,6 +40,9 @@ export type Tile = {
 export type City = {
   id: string;
   name: string;
+  nameEn: string;
+  nameZh: string;
+  nameId: string;
   nationId: string;
   provinceId: string;
   x: number;

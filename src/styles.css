@@ -516,6 +516,65 @@ h2 {
   background: #f1f7ef;
 }
 
+.secondaryControl {
+  min-height: 38px;
+  grid-column: 1 / -1;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 8px;
+  color: #dce7df;
+  background: #202b30;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.secondaryControl:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.turnProgress {
+  grid-column: 1 / -1;
+  padding: 9px 11px;
+  border-left: 3px solid #70b9a0;
+  border-radius: 6px;
+  background: rgb(112 185 160 / 9%);
+}
+
+.turnProgress span,
+.turnProgress strong {
+  display: block;
+}
+
+.turnProgress span {
+  color: #9fb7b1;
+  font-size: 11px;
+}
+
+.turnProgress strong {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.languageControl {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  color: #9fb7b1;
+  font-size: 12px;
+}
+
+.languageControl select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  color: #eef3ec;
+  background: #202b30;
+}
+
 .speedControl {
   grid-column: 1 / -1;
 }
@@ -707,6 +766,37 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.defeatedNationHeader {
+  opacity: 0.72;
+}
+
+.defeatedNationNotice {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgb(212 97 95 / 42%);
+  border-radius: 10px;
+  background: rgb(212 97 95 / 10%);
+}
+
+.defeatedNationNotice h2 {
+  margin-bottom: 0;
+}
+
+.defeatedNationNotice p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: #d9c7c3;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.defeatedNationNotice strong {
+  color: #eef3ec;
 }
 
 .cityDetailHeader > span {

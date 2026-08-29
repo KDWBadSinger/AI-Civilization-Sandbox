@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { formatResourceName, getTileMonthlyYield } from "../world/economy";
+import { getTileMonthlyYield } from "../world/economy";
+import { getLocalizedName, localizeResource, type Language } from "../world/localization";
+import { isNationDefeated } from "../world/nationStatus";
 import type { MapEdge, Tile, World } from "../world/types";
 import type { ArmyGroup } from "../world/war";
 
@@ -15,6 +17,7 @@ type WorldMapProps = {
   selectedProvinceId?: string;
   onSelectCity: (cityId: string) => void;
   onSelectProvince: (provinceId: string | undefined) => void;
+  language: Language;
 };
 
 type ResourceTooltip = {
@@ -54,6 +57,7 @@ export function WorldMap({
   onSelectProvince,
   selectedCityId,
   selectedProvinceId,
+  language,
 }: WorldMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const armyGraphicsRef = useRef<Graphics | null>(null);
@@ -100,7 +104,7 @@ export function WorldMap({
       const viewport = new Container();
       pixiApp.stage.addChild(viewport);
 
-      drawWorld(viewport, world, mapMode, tileByCoord);
+      drawWorld(viewport, world, mapMode, tileByCoord, language);
       const armyPaths = new Graphics();
       const armies = new Graphics();
       const armyLabels = new Container();
@@ -133,7 +137,7 @@ export function WorldMap({
 
       pixiApp.stage.on("pointermove", (event) => {
         if (!dragging) {
-          const tooltip = getResourceTooltip(event.global, viewport, tileByCoord, mapMode);
+          const tooltip = getResourceTooltip(event.global, viewport, tileByCoord, mapMode, language);
           setResourceTooltip(tooltip);
           return;
         }
@@ -229,7 +233,7 @@ export function WorldMap({
       }
       app?.destroy(true, { children: true });
     };
-  }, [world, mapMode, mapRevision, onSelectCity, onSelectProvince, tileByCoord]);
+  }, [world, mapMode, mapRevision, onSelectCity, onSelectProvince, tileByCoord, language]);
 
   useEffect(() => {
     const armies = armyGraphicsRef.current;
@@ -260,7 +264,7 @@ export function WorldMap({
 
   return (
     <div className="worldMap" ref={hostRef}>
-      <div className="mapHint">Drag to pan / Wheel to zoom / {Math.round(zoom * 100)}%</div>
+      <div className="mapHint">{language === "zh" ? "拖动平移 / 滚轮缩放" : "Drag to pan / Wheel to zoom"} / {Math.round(zoom * 100)}%</div>
       {resourceTooltip && (
         <div className="resourceTooltip" style={{ left: resourceTooltip.x, top: resourceTooltip.y }}>
           {resourceTooltip.label}
@@ -275,6 +279,7 @@ function getResourceTooltip(
   viewport: Container,
   tileByCoord: Map<string, Tile>,
   mapMode: MapMode,
+  language: Language,
 ): ResourceTooltip | undefined {
   if (mapMode !== "resources") {
     return undefined;
@@ -304,7 +309,7 @@ function getResourceTooltip(
   return {
     x: globalPoint.x + 12,
     y: Math.max(12, globalPoint.y - 36),
-    label: `${formatResourceName(yieldValue.resource)} +${yieldValue.amount}/month`,
+    label: `${localizeResource(yieldValue.resource, language)} +${yieldValue.amount}${language === "zh" ? "/月" : "/month"}`,
   };
 }
 
@@ -313,6 +318,7 @@ function drawWorld(
   world: World,
   mapMode: MapMode,
   tileByCoord: Map<string, Tile>,
+  language: Language,
 ) {
   const terrain = new Graphics();
   const ownership = new Graphics();
@@ -358,9 +364,9 @@ function drawWorld(
   drawNationEdges(nationBorderGlow, world.nationEdges, world, 4.4, 0.84);
   drawSolidEdges(nationBorders, world.nationEdges, 0xf8fbf1, 1.65, 0.94);
   if (mapMode === "political") {
-    drawCities(cities, cityLabels, world);
+    drawCities(cities, cityLabels, world, language);
   }
-  drawNationLabels(nationLabels, world);
+  drawNationLabels(nationLabels, world, language);
 
   container.addChild(
     terrain,
@@ -405,7 +411,7 @@ function cityAtPoint(x: number, y: number, world: World) {
   return nearestCityId;
 }
 
-function drawCities(graphics: Graphics, labels: Container, world: World) {
+function drawCities(graphics: Graphics, labels: Container, world: World, language: Language) {
   for (const city of world.cities) {
     const nation = world.nationById.get(city.nationId);
     const x = city.x * TILE_SIZE + TILE_SIZE / 2;
@@ -418,7 +424,7 @@ function drawCities(graphics: Graphics, labels: Container, world: World) {
         .stroke({ color: nation?.numericColor ?? 0xf8fbf1, width: 2.8, alpha: 1 });
       graphics.circle(x, y, 2.2).fill(nation?.numericColor ?? 0x10161b);
 
-      labels.addChild(createCityLabel(city.name, x + 7, y + 5, 11, 3));
+      labels.addChild(createCityLabel(getLocalizedName(city, language), x + 7, y + 5, 11, 3));
       continue;
     }
 
@@ -426,7 +432,7 @@ function drawCities(graphics: Graphics, labels: Container, world: World) {
       .circle(x, y, 3.6)
       .fill({ color: 0xf8fbf1, alpha: 0.9 })
       .stroke({ color: nation?.numericColor ?? 0xf8fbf1, width: 1.8, alpha: 0.95 });
-    labels.addChild(createCityLabel(city.name, x + 5, y - 12, 9, 2.4));
+    labels.addChild(createCityLabel(getLocalizedName(city, language), x + 5, y - 12, 9, 2.4));
   }
 }
 
@@ -635,8 +641,12 @@ function drawSelectedProvince(
   }
 }
 
-function drawNationLabels(container: Container, world: World) {
+function drawNationLabels(container: Container, world: World, language: Language) {
   for (const nation of world.nations) {
+    if (isNationDefeated(world, nation.id)) {
+      continue;
+    }
+
     const capitalCity = nation.capitalCityId ? world.cityById.get(nation.capitalCityId) : undefined;
     const capitalProvince = world.provinceById.get(nation.capitalProvinceId);
     const x = capitalCity?.x ?? capitalProvince?.centerX;
@@ -646,7 +656,7 @@ function drawNationLabels(container: Container, world: World) {
     }
 
     const label = new Text({
-      text: nation.name,
+      text: getLocalizedName(nation, language),
       style: {
         fill: 0xf8fbf1,
         fontFamily: "Arial",

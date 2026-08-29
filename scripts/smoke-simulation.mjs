@@ -34,122 +34,38 @@ const server = await createServer({
 try {
   const [
     { buildDemoWorld },
-    {
-      buildInitialDiplomacyState,
-      executeDiplomacyPoliciesWithEvents,
-      evaluateDiplomaticProposalsWithEvents,
-    },
-    { buildInitialNationPolicies, advanceNationPolicies },
-    { buildInitialNationRelations },
-    { buildInitialNationStockpiles, settleNationStockpiles },
-    { buildInitialSpyNetworkWithEvents, advanceSpyNetwork },
-    {
-      advanceArmyGroups,
-      advanceMilitaryEconomy,
-      advanceWarSystem,
-      buildInitialMilitaryState,
-      getNationWarSummary,
-    },
+    { advanceSimulationTurn, createInitialSimulationState },
+    { getNationWarSummary },
     { calculateNationCityEconomy },
   ] = await Promise.all([
     server.ssrLoadModule("/src/world/buildDemoWorld.ts"),
-    server.ssrLoadModule("/src/world/diplomacy.ts"),
-    server.ssrLoadModule("/src/world/policyAI.ts"),
-    server.ssrLoadModule("/src/world/relationships.ts"),
-    server.ssrLoadModule("/src/world/settlement.ts"),
-    server.ssrLoadModule("/src/world/spies.ts"),
+    server.ssrLoadModule("/src/world/turnSimulation.ts"),
     server.ssrLoadModule("/src/world/war.ts"),
     server.ssrLoadModule("/src/world/cityEconomy.ts"),
   ]);
 
   const world = buildDemoWorld(seed);
-  const nationRelations = buildInitialNationRelations(world);
-  const nationStockpiles = buildInitialNationStockpiles(world);
-  const nationPolicies = buildInitialNationPolicies(world, nationRelations, nationStockpiles, 0);
-  const initialSpies = buildInitialSpyNetworkWithEvents(world, nationPolicies);
-  const allEvents = [...initialSpies.events];
-
-  let simulation = {
-    diplomacy: buildInitialDiplomacyState(world),
-    elapsedMonths: 0,
-    military: buildInitialMilitaryState(world),
-    nationPolicies,
-    nationRelations,
-    nationStockpiles,
-    spies: initialSpies.spyNetwork,
-  };
+  const missingResources = findMissingNationResources(world);
+  if (missingResources.length > 0) {
+    throw new Error(`国家资源保底失败：${missingResources.join("；")}`);
+  }
+  const allEvents = [];
+  let simulation = createInitialSimulationState(world);
+  allEvents.push(...simulation.events);
 
   for (let month = 1; month <= monthsToRun; month += 1) {
-    const stockpiles = settleNationStockpiles(world, simulation.nationStockpiles, 1);
-    const policies = advanceNationPolicies(
-      world,
-      simulation.nationRelations,
-      stockpiles,
-      simulation.nationPolicies,
-      simulation.elapsedMonths,
-      month,
-    );
-    const militaryEconomy = advanceMilitaryEconomy(
-      world,
-      simulation.military,
-      stockpiles,
-      policies,
-      simulation.diplomacy,
-      month,
-      1,
-    );
-    const spyUpdate = advanceSpyNetwork(
-      simulation.spies,
-      policies,
-      simulation.nationRelations,
-      world,
-      month,
-    );
-    const execution = executeDiplomacyPoliciesWithEvents(
-      simulation.diplomacy,
-      policies,
-      world,
-      month,
-    );
-    const evaluation = evaluateDiplomaticProposalsWithEvents(
-      execution.diplomacy,
-      world,
-      spyUpdate.relations,
-      month,
-    );
-    const movementUpdate = advanceArmyGroups(
-      world,
-      evaluation.diplomacy,
-      militaryEconomy.military,
-      month,
-    );
-    const warUpdate = advanceWarSystem(
-      world,
-      evaluation.diplomacy,
-      movementUpdate.military,
-      spyUpdate.relations,
-      spyUpdate.spyNetwork,
-      month,
-    );
-
-    allEvents.push(
-      ...militaryEconomy.events,
-      ...spyUpdate.events,
-      ...execution.events,
-      ...evaluation.events,
-      ...movementUpdate.events,
-      ...warUpdate.events,
-    );
-
-    simulation = {
-      diplomacy: warUpdate.diplomacy,
-      elapsedMonths: month,
-      military: warUpdate.military,
-      nationPolicies: policies,
-      nationRelations: warUpdate.relations,
-      nationStockpiles: militaryEconomy.stockpiles,
-      spies: spyUpdate.spyNetwork,
-    };
+    const actionOrder = [];
+    const expectedOrder = world.nations
+      .filter((nation) => world.cities.some((city) => city.nationId === nation.id))
+      .map((nation) => nation.id);
+    const next = await advanceSimulationTurn(world, simulation, async ({ nationId }) => {
+      actionOrder.push(nationId);
+    });
+    if (actionOrder.join(",") !== expectedOrder.join(",") || next.elapsedMonths !== month) {
+      throw new Error(`第${month}回合未按国家顺序完整执行`);
+    }
+    allEvents.push(...next.events.filter((event) => event.month === month));
+    simulation = next;
   }
 
   const report = buildReport({
@@ -228,6 +144,22 @@ function buildReport({
       };
     })
     .filter(({ soldiers, softCap }) => soldiers > softCap);
+  const defeatedResidue = world.nations
+    .map((nation) => {
+      const cities = world.cities.filter((city) => city.nationId === nation.id);
+      if (cities.length > 0) return undefined;
+      const provinces = world.provinces.filter((province) => province.nationId === nation.id).length;
+      const summary = getNationWarSummary(simulation.diplomacy, simulation.military, world, nation.id);
+      const stockpile = simulation.nationStockpiles[nation.id];
+      return {
+        activeWars: summary.activeWars.length,
+        gold: Math.round(stockpile?.gold ?? 0),
+        nation,
+        provinces,
+        soldiers: summary.totalSoldiers,
+      };
+    })
+    .filter((entry) => entry && (entry.provinces > 0 || entry.soldiers > 0 || entry.gold > 0 || entry.activeWars > 0));
   const northernNations = getNorthernNations(world, 3);
   const northernMilitaryEvents = countEventsForNations(allEvents, northernNations.map((nation) => nation.id), [
     "war_declared",
@@ -275,6 +207,15 @@ function buildReport({
     failures.push(
       `Army overflow: ${armyOverflow
         .map(({ nation, soldiers, softCap }) => `${nation.name} soldiers=${soldiers}, softCap=${softCap}`)
+        .join("; ")}`,
+    );
+  }
+  if (defeatedResidue.length > 0) {
+    failures.push(
+      `Defeated nation residue: ${defeatedResidue
+        .map(({ activeWars, gold, nation, provinces, soldiers }) =>
+          `${nation.name} provinces=${provinces}, soldiers=${soldiers}, gold=${gold}, activeWars=${activeWars}`,
+        )
         .join("; ")}`,
     );
   }
@@ -404,6 +345,15 @@ function nationName(world, nationId) {
 
 function pairKey(nationAId, nationBId) {
   return [nationAId, nationBId].sort().join("__");
+}
+
+function findMissingNationResources(world) {
+  const resourceTypes = ["grain", "timber", "iron", "coal", "oil"];
+  return world.nations.flatMap((nation) => {
+    const provinceIds = new Set(world.provinces.filter((province) => province.nationId === nation.id).map((province) => province.id));
+    const resources = new Set(world.tiles.filter((tile) => tile.provinceId && provinceIds.has(tile.provinceId)).map((tile) => tile.resource).filter(Boolean));
+    return resourceTypes.filter((resource) => !resources.has(resource)).map((resource) => `${nation.name}缺少${resource}`);
+  });
 }
 
 function parseArgs(rawArgs) {

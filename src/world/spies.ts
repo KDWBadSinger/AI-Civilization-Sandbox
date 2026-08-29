@@ -1,6 +1,7 @@
 import { calculateNationCityEconomy } from "./cityEconomy";
 import { type ResourceTotals } from "./economy";
 import type { GameEvent } from "./events";
+import { isNationActive } from "./nationStatus";
 import type { NationPolicies, SpyMissionIntent, SpyMissionPolicy } from "./policyAI";
 import { adjustNationRelation, type NationRelations } from "./relationships";
 import { calculateNationMonthlyIncome } from "./settlement";
@@ -94,7 +95,7 @@ export function advanceSpyNetwork(
   world: World,
   currentMonth: number,
 ): SpyUpdate {
-  let next = refreshOperationStatuses(spyNetwork, currentMonth);
+  let next = pruneDefeatedSpyNetwork(refreshOperationStatuses(spyNetwork, currentMonth), world, currentMonth);
   const execution = executeActiveSpyMissions(next, relations, world, currentMonth);
   next = execution.spyNetwork;
   const assignment = isPolicyReviewMonth(policies, currentMonth)
@@ -147,6 +148,10 @@ function assignSpyMissions(
   const events: GameEvent[] = [];
 
   for (const nation of world.nations) {
+    if (!isNationActive(world, nation.id)) {
+      continue;
+    }
+
     const desiredMissions = (policies[nation.id]?.spyMissions ?? []).slice(0, spyCapacity);
     const nationSpies = spyNetwork.spies.filter((spy) => spy.nationId === nation.id);
     const activeOperations = operations.filter(
@@ -232,6 +237,13 @@ function executeActiveSpyMissions(
     if (operation.status !== "active") {
       continue;
     }
+    if (
+      !isNationActive(world, operation.ownerNationId) ||
+      !isNationActive(world, operation.targetNationId) ||
+      (operation.secondaryTargetNationId && !isNationActive(world, operation.secondaryTargetNationId))
+    ) {
+      continue;
+    }
 
     if (operation.policy === "gather_intelligence") {
       if (!reports.some((report) => report.operationId === operation.id) && succeeds(world.seed, operation.id, currentMonth, 0.86)) {
@@ -312,6 +324,24 @@ function refreshOperationStatuses(spyNetwork: SpyNetwork, currentMonth: number):
         return { ...operation, status: "active" };
       }
       return operation;
+    }),
+  };
+}
+
+function pruneDefeatedSpyNetwork(spyNetwork: SpyNetwork, world: World, currentMonth: number): SpyNetwork {
+  return {
+    spies: spyNetwork.spies.filter((spy) => isNationActive(world, spy.nationId)),
+    intelligenceReports: spyNetwork.intelligenceReports.filter((report) =>
+      isNationActive(world, report.ownerNationId) &&
+      isNationActive(world, report.targetNationId) &&
+      (report.expiresAtMonth === undefined || report.expiresAtMonth > currentMonth),
+    ),
+    operations: spyNetwork.operations.map((operation) => {
+      const stillValid =
+        isNationActive(world, operation.ownerNationId) &&
+        isNationActive(world, operation.targetNationId) &&
+        (!operation.secondaryTargetNationId || isNationActive(world, operation.secondaryTargetNationId));
+      return stillValid ? operation : { ...operation, expiresAtMonth: currentMonth, status: "expired" as const };
     }),
   };
 }

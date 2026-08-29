@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type MapMode, WorldMap } from "./components/WorldMap";
 import { buildDemoWorld } from "./world/buildDemoWorld";
 import { calculateCityEconomy, calculateNationCityEconomy } from "./world/cityEconomy";
 import {
-  buildInitialDiplomacyState,
   evaluateDiplomaticProposalsWithEvents,
   executeDiplomacyPoliciesWithEvents,
   formatProposalType,
@@ -19,11 +18,9 @@ import {
 } from "./world/events";
 import {
   advanceNationPolicies,
-  buildInitialNationPolicies,
   type NationPolicyState,
 } from "./world/policyAI";
 import {
-  buildInitialNationRelations,
   getAttitudeLabel,
   getNationRelationsFor,
   otherNationId,
@@ -31,14 +28,11 @@ import {
   type NationRelations,
 } from "./world/relationships";
 import {
-  buildInitialNationStockpiles,
   calculateNationMonthlyIncome,
-  settleNationStockpiles,
   type NationStockpile,
 } from "./world/settlement";
 import {
   advanceSpyNetwork,
-  buildInitialSpyNetworkWithEvents,
   formatSpyMissionPolicy,
   getNationSpySummary,
   type NationSpySummary,
@@ -46,10 +40,6 @@ import {
 } from "./world/spies";
 import type { City, Nation, Resource, Terrain, Tile } from "./world/types";
 import {
-  advanceArmyGroups,
-  advanceMilitaryEconomy,
-  advanceWarSystem,
-  buildInitialMilitaryState,
   getAllArmyGroups,
   getNationWarSummary,
   unitStats,
@@ -59,6 +49,15 @@ import {
   type MilitaryState,
   type NationWarSummary,
 } from "./world/war";
+import {
+  advanceSimulationTurn,
+  createInitialSimulationState,
+  type SimulationState,
+  type DefeatedNationRecord,
+  type TurnProgress,
+} from "./world/turnSimulation";
+import { isNationDefeated } from "./world/nationStatus";
+import { localizeText, type Language } from "./world/localization";
 
 const world = buildDemoWorld();
 const mapModes: { id: MapMode; label: string }[] = [
@@ -68,18 +67,6 @@ const mapModes: { id: MapMode; label: string }[] = [
 ];
 const speedOptions = [1, 2, 5] as const;
 type SimulationSpeed = (typeof speedOptions)[number];
-
-type SimulationState = {
-  diplomacy: Parameters<typeof getNationDiplomacySummary>[0];
-  elapsedMonths: number;
-  events: GameEvent[];
-  mapRevision: number;
-  military: MilitaryState;
-  nationPolicies: Record<string, NationPolicyState>;
-  nationRelations: NationRelations;
-  nationStockpiles: Record<string, NationStockpile>;
-  spies: SpyNetwork;
-};
 
 function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean) {
   return [
@@ -92,6 +79,8 @@ function buildAppShellClassName(isPanelOpen: boolean, isEventPanelOpen: boolean)
 }
 
 export default function App() {
+  const appRootRef = useRef<HTMLElement>(null);
+  const [language, setLanguage] = useState<Language>("zh");
   const [mapMode, setMapMode] = useState<MapMode>("political");
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState<SimulationSpeed>(1);
@@ -99,23 +88,14 @@ export default function App() {
   const [eventNationId, setEventNationId] = useState<string | undefined>();
   const [isEventPanelOpen, setIsEventPanelOpen] = useState(true);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
-  const [simulation, setSimulation] = useState<SimulationState>(() => {
-    const nationRelations = buildInitialNationRelations(world);
-    const nationStockpiles = buildInitialNationStockpiles(world);
-    const nationPolicies = buildInitialNationPolicies(world, nationRelations, nationStockpiles, 0);
-    const initialSpies = buildInitialSpyNetworkWithEvents(world, nationPolicies);
-
-    return {
-      diplomacy: buildInitialDiplomacyState(world),
-      elapsedMonths: 0,
-      events: initialSpies.events,
-      mapRevision: 0,
-      military: buildInitialMilitaryState(world),
-      nationPolicies,
-      nationRelations,
-      nationStockpiles,
-      spies: initialSpies.spyNetwork,
-    };
+  const [simulation, setSimulation] = useState<SimulationState>(() => createInitialSimulationState(world));
+  const simulationRef = useRef(simulation);
+  const turnInProgressRef = useRef(false);
+  const [turnProgress, setTurnProgress] = useState<TurnProgress>({
+    turnNumber: 1,
+    completedNationIds: [],
+    totalNations: world.nations.length,
+    phase: "idle",
   });
   const [selectedCityId, setSelectedCityId] = useState<string | undefined>();
   const [cityReturnNationId, setCityReturnNationId] = useState<string | undefined>();
@@ -123,6 +103,7 @@ export default function App() {
   const [selectedProvinceId, setSelectedProvinceId] = useState<string | undefined>(
     world.provinces[0]?.id,
   );
+  useDomLocalization(appRootRef, language);
   const worldTime = useMemo(
     () => formatWorldTime(simulation.elapsedMonths),
     [simulation.elapsedMonths],
@@ -152,6 +133,7 @@ export default function App() {
       simulation.nationStockpiles[selectedNationId ?? ""],
       simulation.nationPolicies[selectedNationId ?? ""],
       simulation.nationRelations,
+      simulation.defeatedNations,
       simulation.diplomacy,
       simulation.military,
       simulation.spies,
@@ -164,95 +146,51 @@ export default function App() {
     [selectedCityId],
   );
 
+  const runNextTurn = useCallback(async () => {
+    if (turnInProgressRef.current) {
+      return;
+    }
+
+    turnInProgressRef.current = true;
+    try {
+      const next = await advanceSimulationTurn(world, simulationRef.current, undefined, setTurnProgress);
+      simulationRef.current = next;
+      setSimulation(next);
+      setTurnProgress({
+        turnNumber: next.elapsedMonths + 1,
+        completedNationIds: [],
+        totalNations: world.nations.length,
+        phase: "idle",
+      });
+    } catch (error) {
+      console.error("国家回合执行失败，本回合未推进：", error);
+      setIsRunning(false);
+    } finally {
+      turnInProgressRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isRunning) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      setSimulation((currentSimulation) => {
-        const currentMonth = currentSimulation.elapsedMonths;
-        const nextMonth = currentMonth + speed;
-        const nationStockpiles = settleNationStockpiles(
-          world,
-          currentSimulation.nationStockpiles,
-          speed,
-        );
-        const nationPolicies = advanceNationPolicies(
-          world,
-          currentSimulation.nationRelations,
-          nationStockpiles,
-          currentSimulation.nationPolicies,
-          currentMonth,
-          nextMonth,
-        );
-        const militaryEconomy = advanceMilitaryEconomy(
-          world,
-          currentSimulation.military,
-          nationStockpiles,
-          nationPolicies,
-          currentSimulation.diplomacy,
-          nextMonth,
-          speed,
-        );
-        const spyUpdate = advanceSpyNetwork(
-          currentSimulation.spies,
-          nationPolicies,
-          currentSimulation.nationRelations,
-          world,
-          nextMonth,
-        );
-        const execution = executeDiplomacyPoliciesWithEvents(
-          currentSimulation.diplomacy,
-          nationPolicies,
-          world,
-          nextMonth,
-        );
-        const evaluation = evaluateDiplomaticProposalsWithEvents(
-          execution.diplomacy,
-          world,
-          spyUpdate.relations,
-          nextMonth,
-        );
-        const movementUpdate = advanceArmyGroups(
-          world,
-          evaluation.diplomacy,
-          militaryEconomy.military,
-          nextMonth,
-        );
-        const warUpdate = advanceWarSystem(
-          world,
-          evaluation.diplomacy,
-          movementUpdate.military,
-          spyUpdate.relations,
-          spyUpdate.spyNetwork,
-          nextMonth,
-        );
-        const newEvents = [
-          ...militaryEconomy.events,
-          ...spyUpdate.events,
-          ...execution.events,
-          ...evaluation.events,
-          ...movementUpdate.events,
-          ...warUpdate.events,
-        ];
-
-        return {
-          diplomacy: warUpdate.diplomacy,
-          elapsedMonths: nextMonth,
-          events: [...currentSimulation.events, ...newEvents].slice(-240),
-          mapRevision: currentSimulation.mapRevision + (warUpdate.mapChanged || movementUpdate.mapChanged ? 1 : 0),
-          military: warUpdate.military,
-          nationPolicies,
-          nationRelations: warUpdate.relations,
-          nationStockpiles: militaryEconomy.stockpiles,
-          spies: spyUpdate.spyNetwork,
-        };
-      });
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [isRunning, speed]);
+    let cancelled = false;
+    let timer: number | undefined;
+    const loop = async () => {
+      await runNextTurn();
+      if (!cancelled) {
+        timer = window.setTimeout(loop, Math.round(1000 / speed));
+      }
+    };
+    void loop();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [isRunning, runNextTurn, speed]);
 
   const handleSelectProvince = useCallback((provinceId: string | undefined) => {
     if (provinceId) {
@@ -290,7 +228,7 @@ export default function App() {
   }, [cityReturnNationId]);
 
   return (
-    <main className={buildAppShellClassName(isPanelOpen, isEventPanelOpen)}>
+    <main className={buildAppShellClassName(isPanelOpen, isEventPanelOpen)} ref={appRootRef} lang={language === "zh" ? "zh-CN" : "en"}>
       <aside className="eventPanel" aria-label="Event log">
         <button
           aria-label={isEventPanelOpen ? "Collapse event log" : "Expand event log"}
@@ -325,6 +263,7 @@ export default function App() {
           selectedProvinceId={selectedProvinceId}
           onSelectCity={handleSelectCity}
           onSelectProvince={handleSelectProvince}
+          language={language}
         />
       </section>
       <aside className="sidePanel" aria-label="World controls">
@@ -355,6 +294,13 @@ export default function App() {
                 <header>
                   <p className="eyebrow">AI Civilization Sandbox</p>
                   <h1>World Observer</h1>
+                  <label className="languageControl">
+                    <span>{language === "zh" ? "游戏语言" : "Game Language"}</span>
+                    <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+                      <option value="zh">中文</option>
+                      <option value="en">English</option>
+                    </select>
+                  </label>
                 </header>
                 <section className="timePanel">
                   <div className="timeReadout">
@@ -368,6 +314,9 @@ export default function App() {
                   >
                     {isRunning ? "Pause" : "Play"}
                   </button>
+                  <button className="secondaryControl" disabled={turnProgress.phase !== "idle"} onClick={() => void runNextTurn()} type="button">
+                    Next Turn
+                  </button>
                   <div className="segmentedControl speedControl" role="group" aria-label="Simulation speed">
                     {speedOptions.map((option) => (
                       <button
@@ -379,6 +328,16 @@ export default function App() {
                         {option}x
                       </button>
                     ))}
+                  </div>
+                  <div className="turnProgress" aria-live="polite">
+                    <span>Turn Progress</span>
+                    <strong>
+                      {turnProgress.phase === "idle"
+                        ? `Turn ${simulation.elapsedMonths + 1}`
+                        : turnProgress.phase === "resolving"
+                          ? `Resolving · ${turnProgress.completedNationIds.length} of ${turnProgress.totalNations} nations completed`
+                          : `Waiting for ${world.nationById.get(turnProgress.activeNationId ?? "")?.name ?? "Unknown nation"} · ${turnProgress.completedNationIds.length} of ${turnProgress.totalNations} nations completed`}
+                    </strong>
                   </div>
                 </section>
                 <div className="statGrid">
@@ -691,6 +650,30 @@ function NationDetailPanel({
   onSelectCity: (cityId: string, returnNationId?: string) => void;
   stats: NationStats;
 }) {
+  if (stats.isDefeated) {
+    const victor = stats.defeatRecord ? world.nationById.get(stats.defeatRecord.victorNationId) : undefined;
+    return (
+      <section className="nationDetail">
+        <button className="backButton" onClick={onBack} type="button">
+          <span aria-hidden="true">{"<"}</span>
+          Back
+        </button>
+        <header className="nationDetailHeader defeatedNationHeader">
+          <span style={{ backgroundColor: stats.nation.color }} />
+          <div>
+            <p className="eyebrow">Defeated Nation</p>
+            <h1>{stats.nation.name}</h1>
+          </div>
+        </header>
+        <section className="defeatedNationNotice">
+          <h2>Nation Defeated</h2>
+          <p><span>Defeated At</span><strong>{stats.defeatRecord ? formatWorldTime(stats.defeatRecord.defeatedAtMonth) : "Unknown"}</strong></p>
+          <p><span>Destroyed By</span><strong>{victor?.name ?? "Unknown"}</strong></p>
+        </section>
+      </section>
+    );
+  }
+
   return (
     <section className="nationDetail">
       <button className="backButton" onClick={onBack} type="button">
@@ -1405,6 +1388,7 @@ function buildNationStats(
   stockpile: NationStockpile | undefined,
   policy: NationPolicyState | undefined,
   relations: NationRelations,
+  defeatedNations: Record<string, DefeatedNationRecord>,
   diplomacy: Parameters<typeof getNationDiplomacySummary>[0],
   military: MilitaryState,
   spies: SpyNetwork,
@@ -1425,6 +1409,8 @@ function buildNationStats(
   const cities = world.cities
     .filter((city) => city.nationId === nationId)
     .sort((a, b) => Number(b.isCapital) - Number(a.isCapital) || b.population - a.population);
+  const defeatRecord = defeatedNations[nationId];
+  const isDefeated = Boolean(defeatRecord) || isNationDefeated(world, nationId);
   const capitalCity =
     (nation.capitalCityId ? world.cityById.get(nation.capitalCityId) : undefined) ??
     cities.find((city) => city.isCapital);
@@ -1449,8 +1435,10 @@ function buildNationStats(
     cityCount: cities.length,
     cityEconomy,
     currentResources: stockpile?.resources ?? {},
+    defeatRecord,
     diplomacy: getNationDiplomacySummary(diplomacy, nationId),
     majorCities: cities.slice(0, 6),
+    isDefeated,
     monthlyIncome,
     monthlyOutput,
     monthsUntilPolicyReview: policy ? Math.max(0, policy.nextDecisionMonth - elapsedMonths) : 0,
@@ -1528,6 +1516,71 @@ function countBy<T extends string>(
     },
     {} as Record<T, number>,
   );
+}
+
+/**
+ * 对既有原型 DOM 做集中式本地化，保留英文源文本以支持无损往返切换。
+ * Pixi 画布中的文本由 WorldMap 组件直接按语言渲染。
+ */
+function useDomLocalization(rootRef: React.RefObject<HTMLElement | null>, language: Language) {
+  const sourceTextsRef = useRef(new WeakMap<Text, string>());
+  const sourceAttributesRef = useRef(new WeakMap<Element, Map<string, string>>());
+  const previousLanguageRef = useRef<Language>(language);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const attributes = ["aria-label", "title", "placeholder"];
+
+    const applyText = (node: Text, comparisonLanguage = language) => {
+      const current = node.data;
+      const previousSource = sourceTextsRef.current.get(node);
+      const previousLocalized = previousSource === undefined ? undefined : localizeText(previousSource, comparisonLanguage, world);
+      const source = previousSource === undefined || (current !== previousSource && current !== previousLocalized)
+        ? current
+        : previousSource;
+      sourceTextsRef.current.set(node, source);
+      const localized = localizeText(source, language, world);
+      if (node.data !== localized) node.data = localized;
+    };
+
+    const applyElement = (element: Element, comparisonLanguage = language) => {
+      const stored = sourceAttributesRef.current.get(element) ?? new Map<string, string>();
+      for (const attribute of attributes) {
+        const current = element.getAttribute(attribute);
+        if (current === null) continue;
+        const previousSource = stored.get(attribute);
+        const previousLocalized = previousSource === undefined ? undefined : localizeText(previousSource, comparisonLanguage, world);
+        const source = previousSource === undefined || (current !== previousSource && current !== previousLocalized)
+          ? current
+          : previousSource;
+        stored.set(attribute, source);
+        const localized = localizeText(source, language, world);
+        if (current !== localized) element.setAttribute(attribute, localized);
+      }
+      sourceAttributesRef.current.set(element, stored);
+    };
+
+    const applyTree = (node: Node, comparisonLanguage = language) => {
+      if (node.nodeType === Node.TEXT_NODE) applyText(node as Text, comparisonLanguage);
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        applyElement(node as Element, comparisonLanguage);
+        node.childNodes.forEach((child) => applyTree(child, comparisonLanguage));
+      }
+    };
+
+    applyTree(root, previousLanguageRef.current);
+    previousLanguageRef.current = language;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "characterData") applyText(mutation.target as Text);
+        mutation.addedNodes.forEach((node) => applyTree(node));
+        if (mutation.type === "attributes") applyElement(mutation.target as Element);
+      }
+    });
+    observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: attributes });
+    return () => observer.disconnect();
+  }, [language, rootRef]);
 }
 
 function formatCounts(counts: Partial<Record<Terrain | Resource, number>>) {

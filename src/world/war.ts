@@ -1,6 +1,7 @@
 import { calculateNationCityEconomy } from "./cityEconomy";
 import type { DiplomacyState, WarState } from "./diplomacy";
 import type { GameEvent } from "./events";
+import { isNationActive, isNationDefeated } from "./nationStatus";
 import type { NationPolicies } from "./policyAI";
 import {
   adjustNationRelation,
@@ -206,6 +207,12 @@ export function advanceMilitaryEconomy(
   );
 
   for (const nation of world.nations) {
+    if (!isNationActive(world, nation.id)) {
+      clearNationMilitary(nextMilitary, nation.id);
+      nextStockpiles[nation.id] = { gold: 0, resources: {} };
+      continue;
+    }
+
     let army = nextMilitary[nation.id] ?? {
       armyGroups: [],
       cityGarrisons: {},
@@ -291,6 +298,11 @@ export function advanceArmyGroups(
   const nextMilitary = cloneMilitary(currentMilitary);
 
   for (const nation of world.nations) {
+    if (!isNationActive(world, nation.id)) {
+      clearNationMilitary(nextMilitary, nation.id);
+      continue;
+    }
+
     let army = nextMilitary[nation.id] ?? {
       armyGroups: [],
       cityGarrisons: {},
@@ -343,7 +355,7 @@ export function advanceWarSystem(
     const attacker = world.nationById.get(war.attackerNationId);
     const defender = world.nationById.get(war.defenderNationId);
 
-    if (!attacker || !defender || !nationExists(world, attacker.id) || !nationExists(world, defender.id)) {
+    if (!attacker || !defender || !isNationActive(world, attacker.id) || !isNationActive(world, defender.id)) {
       events.push(buildWarEvent({
         currentMonth,
         description: `${nationName(world, war.attackerNationId)} and ${nationName(world, war.defenderNationId)} ended their war because one side no longer controls territory.`,
@@ -424,10 +436,13 @@ export function advanceWarSystem(
         events.push(...transfer.events);
         attackerScore += transfer.capturedCities.length > 0 ? 1 : 0;
 
-        if (!nationExists(world, defender.id)) {
+        if (isNationDefeated(world, defender.id)) {
+          const annexation = annexDefeatedNation(world, nextMilitary, defender.id, attacker.id, currentMonth);
+          events.push(...annexation.events);
+          mapChanged ||= annexation.mapChanged;
           events.push(buildWarEvent({
             currentMonth,
-            description: `${defender.name} lost its last province and was defeated by ${attacker.name}.`,
+            description: `${defender.name} lost its cities and population and was defeated by ${attacker.name}.`,
             id: `event-nation-defeated-${defender.id}-${currentMonth}`,
             kind: "nation_defeated",
             nationIds: [attacker.id, defender.id],
@@ -452,13 +467,16 @@ export function advanceWarSystem(
         events.push(...transfer.events);
         defenderScore += transfer.capturedCities.length > 0 ? 1 : 0;
 
-        if (!nationExists(world, attacker.id)) {
+        if (isNationDefeated(world, attacker.id)) {
+          const annexation = annexDefeatedNation(world, nextMilitary, attacker.id, defender.id, currentMonth);
+          events.push(...annexation.events);
+          mapChanged ||= annexation.mapChanged;
           events.push(buildWarEvent({
             currentMonth,
-            description: `${attacker.name} lost its last province and was defeated by ${defender.name}.`,
+            description: `${attacker.name} lost its cities and population and was defeated by ${defender.name}.`,
             id: `event-nation-defeated-${attacker.id}-${currentMonth}`,
             kind: "nation_defeated",
-            nationIds: [attacker.id, defender.id],
+            nationIds: [defender.id, attacker.id],
             title: "Nation Defeated",
           }));
           endedWar = true;
@@ -504,7 +522,9 @@ export function advanceWarSystem(
         ...diplomacy.truces.filter((truce) => truce.expiresAtMonth > currentMonth),
         ...buildTrucesForEndedEvents(events, currentMonth),
       ],
-      wars: dedupeWars(nextWars),
+      wars: dedupeWars(nextWars).filter((war) =>
+        isNationActive(world, war.attackerNationId) && isNationActive(world, war.defenderNationId),
+      ),
     },
     events,
     mapChanged,
@@ -1761,6 +1781,53 @@ function removeCapturedCityGarrisons(
   military[oldNationId] = recalculateNationUnits(army);
 }
 
+function annexDefeatedNation(
+  world: World,
+  military: MilitaryState,
+  defeatedNationId: string,
+  victorNationId: string,
+  currentMonth: number,
+) {
+  const events: GameEvent[] = [];
+  let mapChanged = false;
+  const remainingProvinceIds = world.provinces
+    .filter((province) => province.nationId === defeatedNationId)
+    .map((province) => province.id);
+
+  for (const provinceId of remainingProvinceIds) {
+    const transfer = transferProvince(world, provinceId, victorNationId, defeatedNationId, currentMonth);
+    events.push(...transfer.events);
+    removeCapturedCityGarrisons(military, transfer.capturedCities, defeatedNationId);
+    mapChanged = true;
+  }
+
+  clearNationMilitary(military, defeatedNationId);
+  clearDefeatedNationCapital(world, defeatedNationId);
+  normalizeNationCapitals(world);
+  rebuildNationEdges(world);
+  return { events, mapChanged };
+}
+
+function clearNationMilitary(military: MilitaryState, nationId: string) {
+  military[nationId] = {
+    armyGroups: [],
+    cityGarrisons: {},
+    morale: 0,
+    nationId,
+    recruitmentQueue: [],
+    units: emptyUnits(),
+  };
+}
+
+function clearDefeatedNationCapital(world: World, nationId: string) {
+  const nation = world.nationById.get(nationId);
+  if (!nation) {
+    return;
+  }
+  nation.capitalCityId = undefined;
+  nation.capitalProvinceId = "";
+}
+
 function pickTargetProvince(world: World, attackerNationId: string, defenderNationId: string) {
   const adjacency = buildProvinceAdjacency(world);
   const attackerProvinceIds = new Set(
@@ -1988,10 +2055,6 @@ function hasActiveIntelligence(
     report.targetNationId === targetNationId &&
     (report.expiresAtMonth === undefined || report.expiresAtMonth > currentMonth),
   );
-}
-
-function nationExists(world: World, nationId: string) {
-  return world.provinces.some((province) => province.nationId === nationId);
 }
 
 function cloneMilitary(military: MilitaryState): MilitaryState {

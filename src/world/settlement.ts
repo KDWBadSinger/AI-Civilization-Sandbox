@@ -1,5 +1,6 @@
 import { calculateNationCityEconomy } from "./cityEconomy";
 import { addYield, getTileMonthlyYield, resourceTypes, type ResourceTotals } from "./economy";
+import { isNationActive } from "./nationStatus";
 import type { Resource, World } from "./types";
 
 export type NationStockpile = {
@@ -62,6 +63,10 @@ export function settleNationStockpiles(
         gold: 0,
         resources: emptyResources(),
       };
+      if (!isNationActive(world, nation.id)) {
+        return [nation.id, { gold: 0, resources: emptyResources() }];
+      }
+
       const income = calculateNationMonthlyIncome(world, nation.id);
 
       return [

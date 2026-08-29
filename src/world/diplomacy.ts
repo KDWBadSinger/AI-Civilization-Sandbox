@@ -1,5 +1,6 @@
 import { calculateNationCityEconomy } from "./cityEconomy";
 import type { GameEvent } from "./events";
+import { isNationActive } from "./nationStatus";
 import type { NationPolicies } from "./policyAI";
 import { getNationRelation, relationKey, type NationRelations } from "./relationships";
 import type { Resource, World } from "./types";
@@ -130,6 +131,9 @@ export function executeDiplomacyPoliciesWithEvents(
     if (!targetNationId || nationId === targetNationId) {
       continue;
     }
+    if (world && (!isNationActive(world, nationId) || !isNationActive(world, targetNationId))) {
+      continue;
+    }
 
     switch (diplomacyPolicy.policy) {
       case "declare_war":
@@ -234,6 +238,11 @@ export function evaluateDiplomaticProposalsWithEvents(
   }
 
   for (const proposal of diplomacy.proposals) {
+    if (!isNationActive(world, proposal.fromNationId) || !isNationActive(world, proposal.toNationId)) {
+      changed = true;
+      continue;
+    }
+
     if (proposal.expiresAtMonth <= currentMonth) {
       events.push(buildProposalEvent(proposal, world, currentMonth, "proposal_expired"));
       changed = true;
@@ -480,6 +489,10 @@ function maintainLongTermTreaties(
   const events: GameEvent[] = [];
 
   diplomacy.alliances = diplomacy.alliances.filter((alliance) => {
+    if (!isNationActive(world, alliance.nationAId) || !isNationActive(world, alliance.nationBId)) {
+      return false;
+    }
+
     const age = currentMonth - alliance.signedAtMonth;
     const relation = getNationRelation(relations, alliance.nationAId, alliance.nationBId);
     if (age < 144 || (relation?.attitude ?? 0) >= 20) {
@@ -498,6 +511,10 @@ function maintainLongTermTreaties(
   });
 
   diplomacy.vassalContracts = diplomacy.vassalContracts.filter((contract) => {
+    if (!isNationActive(world, contract.overlordNationId) || !isNationActive(world, contract.vassalNationId)) {
+      return false;
+    }
+
     const age = currentMonth - contract.signedAtMonth;
     if (age < 120) {
       return true;

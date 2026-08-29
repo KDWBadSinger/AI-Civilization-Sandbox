@@ -1,4 +1,6 @@
 import type { City, MapEdge, Nation, Province, Resource, Terrain, Tile, World } from "./types";
+import { resourceTypes } from "./economy";
+import { cityNames, governmentForms, nationNameBases } from "./nameCatalog";
 
 const width = 96;
 const height = 64;
@@ -6,14 +8,15 @@ const defaultSeed = "observer-world-001";
 const nationCount = 6;
 const targetProvinceCount = 118;
 
-const nationTemplates = [
-  { id: "aurora", name: "Aurora Directorate", color: "#4d8bff", numericColor: 0x4d8bff },
-  { id: "verdant", name: "Verdant Assembly", color: "#42a66b", numericColor: 0x42a66b },
-  { id: "sol", name: "Sol Meridian", color: "#d89d35", numericColor: 0xd89d35 },
-  { id: "ember", name: "Ember Compact", color: "#d4615f", numericColor: 0xd4615f },
-  { id: "lumen", name: "Lumen Accord", color: "#b985e8", numericColor: 0xb985e8 },
-  { id: "cobalt", name: "Cobalt League", color: "#49b7c9", numericColor: 0x49b7c9 },
+const nationColors = [
+  { color: "#4d8bff", numericColor: 0x4d8bff },
+  { color: "#42a66b", numericColor: 0x42a66b },
+  { color: "#d89d35", numericColor: 0xd89d35 },
+  { color: "#d4615f", numericColor: 0xd4615f },
+  { color: "#b985e8", numericColor: 0xb985e8 },
+  { color: "#49b7c9", numericColor: 0x49b7c9 },
 ];
+const nationIds = ["aurora", "verdant", "sol", "ember", "lumen", "cobalt"];
 
 const namePrefixes = [
   "North",
@@ -69,44 +72,6 @@ const nameRoots = [
   "forge",
 ];
 
-const cityPrefixes = [
-  "Aster",
-  "Nova",
-  "River",
-  "Iron",
-  "Crown",
-  "Harbor",
-  "Stone",
-  "Bright",
-  "Cloud",
-  "Ember",
-  "Lumen",
-  "Cobalt",
-  "Verdant",
-  "Auric",
-  "Horizon",
-  "Meridian",
-];
-
-const cityRoots = [
-  "hold",
-  "gate",
-  "port",
-  "spire",
-  "haven",
-  "cross",
-  "fall",
-  "watch",
-  "ford",
-  "market",
-  "garden",
-  "forge",
-  "rest",
-  "ward",
-  "point",
-  "bridge",
-];
-
 type ProvinceSeed = {
   id: string;
   x: number;
@@ -120,8 +85,9 @@ export function buildDemoWorld(seed = defaultSeed): World {
   const provinceSeeds = chooseProvinceSeeds(tiles, rng);
   const provinces = buildProvinces(tiles, provinceSeeds, seedHash);
   const capitals = chooseCapitalProvinces(provinces, rng);
-  const nations = buildNations(provinces, capitals);
-  assignNationsToProvinces(provinces, capitals, seedHash);
+  const nations = buildNations(capitals, rng);
+  assignNationsToProvinces(provinces, capitals, nations, seedHash);
+  ensureNationResourceCoverage(tiles, provinces, nations, seedHash);
 
   const provinceById = new Map(provinces.map((province) => [province.id, province]));
   const nationById = new Map(nations.map((nation) => [nation.id, nation]));
@@ -234,6 +200,8 @@ function buildProvinces(tiles: Tile[], seeds: ProvinceSeed[], seedHash: number):
       return {
         id: seed.id,
         name: provinceName(index),
+        nameEn: provinceName(index),
+        nameZh: `第${index + 1}省`,
         nationId: "",
         centerX: stat.xSum / stat.count,
         centerY: stat.ySum / stat.count,
@@ -276,11 +244,22 @@ function chooseCapitalProvinces(provinces: Province[], rng: () => number): Provi
   return capitals;
 }
 
-function buildNations(provinces: Province[], capitals: Province[]): Nation[] {
+function buildNations(capitals: Province[], rng: () => number): Nation[] {
+  const availableBases = shuffled(nationNameBases, rng);
+  const availableForms = shuffled(governmentForms, rng);
+
   return capitals.map((capital, index) => {
-    const template = nationTemplates[index % nationTemplates.length];
+    const base = availableBases[index % availableBases.length];
+    const form = availableForms[index % availableForms.length];
+    const colors = nationColors[index % nationColors.length];
     return {
-      ...template,
+      id: nationIds[index] ?? `nation-${index}`,
+      name: `${base.en} ${form.en}`,
+      nameEn: `${base.en} ${form.en}`,
+      nameZh: `${base.zh}${form.zh}`,
+      nameBaseId: base.id,
+      governmentFormId: form.id,
+      ...colors,
       capitalProvinceId: capital.id,
     };
   });
@@ -289,6 +268,7 @@ function buildNations(provinces: Province[], capitals: Province[]): Nation[] {
 function assignNationsToProvinces(
   provinces: Province[],
   capitals: Province[],
+  nations: Nation[],
   seedHash: number,
 ) {
   for (const province of provinces) {
@@ -312,8 +292,50 @@ function assignNationsToProvinces(
       }
     }
 
-    province.nationId = nationTemplates[capitals.indexOf(bestCapital)].id;
+    province.nationId = nations[capitals.indexOf(bestCapital)].id;
   }
+}
+
+/** 为每个初始国家补齐全部资源类型，确保所有国家都具备基础发展条件。 */
+function ensureNationResourceCoverage(
+  tiles: Tile[],
+  provinces: Province[],
+  nations: Nation[],
+  seedHash: number,
+) {
+  const nationIdByProvince = new Map(provinces.map((province) => [province.id, province.nationId]));
+
+  for (const nation of nations) {
+    const ownedTiles = tiles.filter(
+      (tile) => tile.provinceId && nationIdByProvince.get(tile.provinceId) === nation.id,
+    );
+    const existing = new Set(ownedTiles.flatMap((tile) => tile.resource ? [tile.resource] : []));
+
+    for (const resource of resourceTypes) {
+      if (existing.has(resource)) {
+        continue;
+      }
+
+      const target = ownedTiles
+        .filter((tile) => !tile.resource)
+        .sort((a, b) => resourcePlacementScore(b, resource, seedHash) - resourcePlacementScore(a, resource, seedHash))[0];
+      if (target) {
+        target.resource = resource;
+        existing.add(resource);
+      }
+    }
+  }
+}
+
+function resourcePlacementScore(tile: Tile, resource: Resource, seedHash: number) {
+  const preferred = resource === "grain"
+    ? tile.terrain === "plain"
+    : resource === "timber"
+      ? tile.terrain === "forest"
+      : resource === "iron" || resource === "coal"
+        ? tile.terrain === "hill" || tile.terrain === "mountain"
+        : tile.terrain === "coast" || tile.terrain === "desert";
+  return (preferred ? 10 : 0) + randomAt(tile.x, tile.y, seedHash + 6100 + resourceTypes.indexOf(resource));
 }
 
 function buildCities(
@@ -421,7 +443,7 @@ function createCity(
 
   return {
     id: `city-${index}`,
-    name: cityName(index),
+    ...cityName(index, seedHash),
     nationId: nation.id,
     provinceId: province.id,
     x: tile.x,
@@ -515,10 +537,19 @@ function cityTerrainScore(terrain: Terrain) {
   }
 }
 
-function cityName(index: number) {
-  const prefix = cityPrefixes[index % cityPrefixes.length];
-  const root = cityRoots[Math.floor(index / cityPrefixes.length) % cityRoots.length];
-  return `${prefix}${root}`;
+function cityName(index: number, seedHash: number) {
+  const offset = Math.floor(randomAt(0, 0, seedHash + 6200) * cityNames.length);
+  const entry = cityNames[(index + offset) % cityNames.length];
+  return { name: entry.en, nameEn: entry.en, nameZh: entry.zh, nameId: entry.id };
+}
+
+function shuffled<T>(values: T[], rng: () => number) {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(rng() * (index + 1));
+    [result[index], result[target]] = [result[target], result[index]];
+  }
+  return result;
 }
 
 function buildBorders(
